@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
-	"math"
 	"net/http"
 	"time"
 
@@ -156,12 +156,18 @@ func createReservation(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 
+			// Server-side pricing: date/range rules override the base rate.
+			// A caller may still pass a contracted total (e.g. channel manager).
 			if r.TotalAmount <= 0 {
-				nights := int(math.Round(r.CheckOut.Sub(r.CheckIn).Hours() / 24))
-				if nights < 1 {
-					nights = 1
+				detail, total, err := quoteStay(db, r.HotelID, r.RoomID, r.CheckIn, r.CheckOut, room.BaseRate)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
 				}
-				r.TotalAmount = room.BaseRate * float64(nights)
+				r.TotalAmount = total
+				if raw, err := json.Marshal(detail); err == nil {
+					r.RateDetail = string(raw)
+				}
 			}
 		}
 		if r.GuestID != 0 {

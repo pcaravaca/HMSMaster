@@ -39,6 +39,7 @@ type Reservation struct {
 	Status        string    `json:"status" gorm:"default:'pending'"`        // pending, confirmed, checked_in, checked_out, canceled
 	PaymentStatus string    `json:"payment_status" gorm:"default:'unpaid'"` // unpaid, paid, partial
 	Channel       string    `json:"channel" gorm:"default:'direct'"`        // direct, airbnb, booking, expedia
+	RateDetail    string    `json:"rate_detail" gorm:"type:text"`          // JSON nightly breakdown used at creation
 }
 
 // FolioCharge is a charge on a guest folio. Charges can originate in HMS

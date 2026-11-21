@@ -88,7 +88,7 @@
 
       <section class="grid ops">
         <div class="card">
-          <div class="card-head"><h2>Nueva reserva</h2><span class="hint">Tarifa = noches × tarifa base</span></div>
+          <div class="card-head"><h2>Nueva reserva</h2><span class="hint">{{ quoteText }}</span></div>
           <form @submit.prevent="createReservation">
             <label>Huésped registrado
               <select v-model.number="form.guest_id" @change="onGuestSelect">
@@ -99,13 +99,13 @@
             <label>Huésped<input v-model="form.guest_name" required placeholder="Nombre completo" /></label>
             <label>Email<input v-model="form.guest_email" type="email" placeholder="opcional" /></label>
             <label>Habitación
-              <select v-model.number="form.room_id" required>
+              <select v-model.number="form.room_id" required @change="loadQuote">
                 <option v-for="r in visibleRooms" :key="r.ID" :value="r.ID">{{ r.number }} · {{ r.type }} · {{ fmtCRC(r.base_rate) }}</option>
               </select>
             </label>
             <div class="row">
-              <label>Entrada<input v-model="form.check_in" type="date" required /></label>
-              <label>Salida<input v-model="form.check_out" type="date" required /></label>
+              <label>Entrada<input v-model="form.check_in" type="date" required @change="loadQuote" /></label>
+              <label>Salida<input v-model="form.check_out" type="date" required @change="loadQuote" /></label>
             </div>
             <label>Canal
               <select v-model="form.channel">
@@ -139,6 +139,34 @@
             <button class="btn primary" type="submit">Agregar cargo</button>
           </form>
           <p class="hint small">Sin POSMASTER_API_URL los cargos quedan locales. Con el token configurado se envían como línea de factura.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Tarifas dinámicas</h2><span class="hint">{{ rateRules.length }} reglas · {{ hotelName }}</span></div>
+          <form @submit.prevent="createRate">
+            <label>Aplica a
+              <select v-model.number="rateForm.room_id">
+                <option :value="0">Toda la propiedad</option>
+                <option v-for="r in rooms" :key="r.ID" :value="r.ID">{{ r.number }} · {{ r.type }} · base {{ fmtCRC(r.base_rate) }}</option>
+              </select>
+            </label>
+            <div class="row">
+              <label>Desde<input v-model="rateForm.start_date" type="date" required /></label>
+              <label>Hasta<input v-model="rateForm.end_date" type="date" required /></label>
+            </div>
+            <label>Precio por noche (₡)<input v-model.number="rateForm.price" type="number" min="1" step="1" required /></label>
+            <label>Nota<input v-model="rateForm.notes" placeholder="Ej. temporada alta" /></label>
+            <button class="btn primary" type="submit">Agregar tarifa</button>
+          </form>
+          <div class="charges">
+            <div v-for="r in rateRules" :key="r.ID" class="charge">
+              <span>{{ r.room_id ? 'Hab. ' + (rooms.find(x => x.ID === r.room_id)?.number || r.room_id) : 'Toda la propiedad' }}</span>
+              <span class="hint">{{ r.start_date }} → {{ r.end_date }} · {{ fmtCRC(r.price) }}</span>
+              <button class="btn small" @click="deleteRate(r)">Eliminar</button>
+            </div>
+            <p v-if="!rateRules.length" class="hint">Sin reglas: se usa la tarifa base de cada habitación.</p>
+          </div>
+          <p class="hint small">Una regla por habitación gana sobre la de propiedad; entre reglas iguales gana la más reciente.</p>
         </div>
 
         <div class="card">
@@ -183,7 +211,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.8.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.9.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -214,6 +242,15 @@ const msgType = ref('ok')
 const folioReservationId = ref(null)
 const form = reactive({ guest_id: 0, guest_name: '', guest_email: '', room_id: 0, check_in: '', check_out: '', channel: 'direct' })
 const charge = reactive({ description: '', amount: 0 })
+const rateRules = ref([])
+const rateForm = reactive({ room_id: 0, start_date: '', end_date: '', price: 0, notes: '' })
+const quote = ref(null)
+const quoteText = computed(() => {
+  const q = quote.value
+  if (!q) return 'Tarifa = noches × tarifa base'
+  const dynamic = q.nights_detail.filter(n => !n.base).length
+  return `${q.nights} noches · ${fmtCRC(q.total)} · ${dynamic} tarifa${dynamic === 1 ? '' : 's'} dinámica${dynamic === 1 ? '' : 's'}`
+})
 let timer = null
 
 const token = ref(localStorage.getItem('hms_token') || '')
@@ -285,22 +322,25 @@ async function load() {
   try {
     const hid = activeHotelId.value || ''
     const q = hid ? `?hotel_id=${hid}` : ''
-    const [s, r, h, g] = await Promise.all([
+    const [s, r, h, g, rates] = await Promise.all([
       apiFetch('/api/stats' + q).then(x => x.json()),
       apiFetch('/api/reservations' + q).then(x => x.json()),
       apiFetch('/api/hotels').then(x => x.json()),
       apiFetch('/api/guests' + q).then(x => x.json()),
+      apiFetch('/api/rates' + q).then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
     hotels.value = h
     guests.value = g
+    rateRules.value = rates
     if (!activeHotelId.value && h.length) activeHotelId.value = h[0].ID
     const sel = h.find(x => x.ID === activeHotelId.value) || h[0]
     if (sel) {
       hotelName.value = sel.name
       rooms.value = await apiFetch(`/api/hotels/${sel.ID}/rooms`).then(x => x.json())
       if (!form.room_id && rooms.value.length) form.room_id = rooms.value[0].ID
+      await loadQuote()
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
     await loadCharges()
@@ -313,6 +353,39 @@ function onGuestSelect() {
     form.guest_name = [g.first_name, g.last_name].filter(Boolean).join(' ')
     form.guest_email = g.email || ''
   }
+}
+
+async function loadQuote() {
+  quote.value = null
+  if (!activeHotelId.value || !form.room_id || !form.check_in || !form.check_out) return
+  if (form.check_out <= form.check_in) return
+  try {
+    const url = `/api/rates/quote?hotel_id=${activeHotelId.value}&room_id=${form.room_id}&check_in=${form.check_in}T14:00:00Z&check_out=${form.check_out}T12:00:00Z`
+    const res = await apiFetch(url)
+    if (res.ok) quote.value = await res.json()
+  } catch (e) { console.error(e) }
+}
+
+async function createRate() {
+  try {
+    const res = await apiFetch('/api/rates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hotel_id: activeHotelId.value, ...rateForm })
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    notify('Tarifa agregada')
+    rateForm.start_date = ''; rateForm.end_date = ''; rateForm.price = 0; rateForm.notes = ''
+    await load()
+  } catch (e) { notify('No se pudo agregar: ' + e.message, 'err') }
+}
+
+async function deleteRate(r) {
+  try {
+    const res = await apiFetch(`/api/rates/${r.ID}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(res.status)
+    notify('Tarifa eliminada')
+    await load()
+  } catch (e) { notify('No se pudo eliminar: ' + e.message, 'err') }
 }
 
 async function createGuest() {

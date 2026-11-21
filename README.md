@@ -8,6 +8,7 @@ Companion system to 🛒 POSMaster.
 - **Room Management**: Availability tracking, pricing, and types.
 - **Multi-Property**: switch the active property in the header; stats, reservations, rooms and availability are scoped to it (`?hotel_id=`). New properties can be added from the dashboard.
 - **Reservation Engine**: Multi-channel booking (Airbnb, Direct, etc.) with overlap protection — a room cannot be sold twice for the same nights; maintenance rooms are also blocked.
+- **Dynamic Rates**: date-range `RateRule` overrides (per room or whole property) resolved nightly; room-specific rules beat property-wide ones and the newest rule wins ties. `GET /api/rates/quote` returns the nightly breakdown and total, and reservation totals are computed server-side with an audit `rate_detail`.
 - **Unified Guest Profiles**: `Guest` records with document, contact and stay history. Reservations link by `guest_id` and inherit name/email; `GET /api/guests/:id` returns the guest plus all their stays.
 - **Availability Search**: `GET /api/availability?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD` returns every room with its free/busy status and conflicting reservation ids.
 - **POSMaster Integration**: Seamless forwarding of folio charges to POSMaster for official invoicing.

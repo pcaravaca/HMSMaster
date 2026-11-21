@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.8.0"
+const version = "0.9.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -34,7 +34,7 @@ func openDB() *gorm.DB {
 
 func main() {
 	db := openDB()
-	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}); err != nil {
+	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	// Partial unique index on existing databases (empty keys are allowed).
@@ -56,6 +56,10 @@ func main() {
 	{
 		api.GET("/stats", statsHandler(db))
 		api.GET("/availability", availabilityHandler(db))
+		api.GET("/rates", listRates(db))
+		api.POST("/rates", createRate(db))
+		api.DELETE("/rates/:id", deleteRate(db))
+		api.GET("/rates/quote", quoteRate(db))
 		api.GET("/posmaster/status", posStatusHandler(db))
 		api.POST("/reservations/:id/charges/:chargeId/retry", retryChargeHandler(db))
 		api.GET("/guests", listGuests(db))
