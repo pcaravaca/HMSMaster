@@ -142,6 +142,41 @@
           <p class="hint small">Sin POSMASTER_API_URL los cargos quedan locales. Con el token configurado se envían como línea de factura.</p>
         </div>
 
+        <div class="card">
+          <div class="card-head"><h2>Canales OTA</h2><span class="hint">{{ channelBookings.length }} reservas entrantes</span></div>
+          <form v-if="canOps" @submit.prevent="createChannelBooking">
+            <label>Canal
+              <select v-model="channelForm.channel">
+                <option value="airbnb">Airbnb</option><option value="booking">Booking</option>
+                <option value="expedia">Expedia</option><option value="direct">Directo</option>
+              </select>
+            </label>
+            <label>Referencia externa<input v-model="channelForm.external_id" required placeholder="Ej. AB-12345" /></label>
+            <label>Huésped<input v-model="channelForm.guest_name" required /></label>
+            <label>Habitación
+              <select v-model.number="channelForm.room_id">
+                <option v-for="r in rooms" :key="r.ID" :value="r.ID">{{ r.number }} · {{ r.type }}</option>
+              </select>
+            </label>
+            <div class="row">
+              <label>Entrada<input v-model="channelForm.check_in" type="date" required /></label>
+              <label>Salida<input v-model="channelForm.check_out" type="date" required /></label>
+            </div>
+            <button class="btn primary" type="submit">Importar reserva</button>
+          </form>
+          <div class="charges">
+            <div v-for="b in channelBookings" :key="b.ID" class="charge">
+              <span><b>{{ b.channel }}</b> · {{ b.external_id }}</span>
+              <span class="hint">{{ b.guest_name }} · {{ fmtDate(b.check_in) }} → {{ fmtDate(b.check_out) }}</span>
+              <span class="chip" :class="b.status">{{ b.status }}</span>
+              <button v-if="canOps && b.status !== 'canceled'" class="btn small" @click="cancelChannelBooking(b)">Cancelar</button>
+            </div>
+            <p v-if="!channelBookings.length" class="hint">Sin reservas entrantes.</p>
+          </div>
+          <p class="hint small">Webhook real: POST /api/channels/bookings con cabecera X-HMS-Signature (HMAC-SHA256) cuando el canal tiene secreto configurado.
+          La repetición de la misma referencia externa no crea una reserva duplicada.</p>
+        </div>
+
         <div class="card" v-if="canAdmin">
           <div class="card-head"><h2>Usuarios y roles</h2><span class="hint">{{ users.length }} cuentas</span></div>
           <div class="charges">
@@ -235,7 +270,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.10.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.11.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -280,6 +315,8 @@ let timer = null
 const me = ref({ username: '', role: 'admin' })
 const users = ref([])
 const userForm = reactive({ username: '', password: '', role: 'reception' })
+const channelBookings = ref([])
+const channelForm = reactive({ channel: 'airbnb', external_id: '', guest_name: '', room_id: 0, check_in: '', check_out: '' })
 const canAdmin = computed(() => me.value.role === 'admin')
 const canRates = computed(() => ['admin', 'manager'].includes(me.value.role))
 const canOps = computed(() => ['admin', 'manager', 'reception'].includes(me.value.role))
@@ -354,13 +391,14 @@ async function load() {
   try {
     const hid = activeHotelId.value || ''
     const q = hid ? `?hotel_id=${hid}` : ''
-    const [s, r, h, g, rates, identity] = await Promise.all([
+    const [s, r, h, g, rates, identity, incoming] = await Promise.all([
       apiFetch('/api/stats' + q).then(x => x.json()),
       apiFetch('/api/reservations' + q).then(x => x.json()),
       apiFetch('/api/hotels').then(x => x.json()),
       apiFetch('/api/guests' + q).then(x => x.json()),
       apiFetch('/api/rates' + q).then(x => x.json()),
       apiFetch('/api/auth/me').then(x => x.json()),
+      apiFetch('/api/channels/bookings' + q).then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
@@ -368,6 +406,7 @@ async function load() {
     guests.value = g
     rateRules.value = rates
     me.value = identity
+    channelBookings.value = incoming
     if (canAdmin.value) users.value = await apiFetch('/api/users').then(x => x.json())
     if (!activeHotelId.value && h.length) activeHotelId.value = h[0].ID
     const sel = h.find(x => x.ID === activeHotelId.value) || h[0]
@@ -375,6 +414,7 @@ async function load() {
       hotelName.value = sel.name
       rooms.value = await apiFetch(`/api/hotels/${sel.ID}/rooms`).then(x => x.json())
       if (!form.room_id && rooms.value.length) form.room_id = rooms.value[0].ID
+      if (!channelForm.room_id) channelForm.room_id = rooms.value[0].ID
       await loadQuote()
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
@@ -388,6 +428,29 @@ function onGuestSelect() {
     form.guest_name = [g.first_name, g.last_name].filter(Boolean).join(' ')
     form.guest_email = g.email || ''
   }
+}
+
+async function createChannelBooking() {
+  try {
+    const res = await apiFetch('/api/channels/bookings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...channelForm, hotel_id: activeHotelId.value })
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    const data = await res.json()
+    notify(data.duplicate ? 'Reserva ya importada (idempotente)' : `Reserva OTA #${data.reservation.ID} importada`)
+    channelForm.external_id = ''; channelForm.guest_name = ''
+    await load()
+  } catch (e) { notify('No se pudo importar: ' + e.message, 'err') }
+}
+
+async function cancelChannelBooking(b) {
+  try {
+    const res = await apiFetch(`/api/channels/bookings/${b.ID}/cancel`, { method: 'POST' })
+    if (!res.ok) throw new Error(res.status)
+    notify('Reserva OTA cancelada')
+    await load()
+  } catch (e) { notify('No se pudo cancelar: ' + e.message, 'err') }
 }
 
 async function loadMe() {
@@ -587,6 +650,7 @@ td { padding: 7px 6px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-alig
 .channel { color: var(--muted); font-size: 11px; }
 .chip { border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; }
 .chip.pending { background: rgba(251,191,36,.15); color: #fbbf24; }
+.chip.received { background: rgba(167,139,250,.15); color: #c4b5fd; }
 .chip.confirmed { background: rgba(96,165,250,.15); color: #60a5fa; }
 .chip.checked_in { background: rgba(52,211,153,.15); color: #34d399; }
 .chip.checked_out { background: rgba(148,163,184,.15); color: #94a3b8; }

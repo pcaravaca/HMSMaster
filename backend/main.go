@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.10.0"
+const version = "0.11.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -34,11 +34,12 @@ func openDB() *gorm.DB {
 
 func main() {
 	db := openDB()
-	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}, &models.User{}); err != nil {
+	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}, &models.User{}, &models.ChannelBooking{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	// Partial unique index on existing databases (empty keys are allowed).
 	_ = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_folio_charges_idempotency_key ON folio_charges (idempotency_key) WHERE idempotency_key <> ''").Error
+	_ = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_bookings_external ON channel_bookings (channel, external_id)").Error
 	seed(db)
 	seedAdminUser(db)
 	startPOSRetryWorker(db)
@@ -56,6 +57,9 @@ func main() {
 	api.Use(authMiddleware())
 	{
 		api.GET("/auth/me", authMeHandler)
+		api.POST("/channels/bookings", guardRoles(createChannelBooking(db), "admin","manager","reception"))
+		api.GET("/channels/bookings", listChannelBookings(db))
+		api.POST("/channels/bookings/:id/cancel", guardRoles(cancelChannelBooking(db), "admin","manager","reception"))
 		api.GET("/stats", statsHandler(db))
 		api.GET("/availability", availabilityHandler(db))
 		api.GET("/rates", listRates(db))
