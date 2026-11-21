@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -52,6 +52,7 @@ func main() {
 	api.Use(authMiddleware())
 	{
 		api.GET("/stats", statsHandler(db))
+		api.GET("/availability", availabilityHandler(db))
 		api.GET("/hotels", listHotels(db))
 		api.POST("/hotels", createHotel(db))
 		api.GET("/hotels/:id/rooms", listRooms(db))

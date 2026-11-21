@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"net/http"
 	"time"
@@ -124,6 +125,22 @@ func createReservation(db *gorm.DB) gin.HandlerFunc {
 			}
 			r.RoomNumber = room.Number
 			r.HotelID = room.HotelID
+
+			// A room cannot be sold twice for overlapping nights. Only active
+			// reservations count; canceled and checked_out bookings are history.
+			var existing []models.Reservation
+			db.Where("room_id = ? AND status NOT IN ?", r.RoomID, []string{"canceled", "checked_out"}).Find(&existing)
+			for _, ex := range existing {
+				if datesOverlap(r.CheckIn, r.CheckOut, ex.CheckIn, ex.CheckOut) {
+					c.JSON(http.StatusConflict, gin.H{"error": fmt.Sprintf("room %s already reserved for those dates (reservation #%d)", room.Number, ex.ID)})
+					return
+				}
+			}
+			if room.Status == "maintenance" {
+				c.JSON(http.StatusConflict, gin.H{"error": "room is under maintenance"})
+				return
+			}
+
 			if r.TotalAmount <= 0 {
 				nights := int(math.Round(r.CheckOut.Sub(r.CheckIn).Hours() / 24))
 				if nights < 1 {

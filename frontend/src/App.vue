@@ -60,11 +60,18 @@
 
         <div class="card">
           <h2>Habitaciones · {{ hotelName }}</h2>
+          <div class="avail-search">
+            <input v-model="search.check_in" type="date" />
+            <input v-model="search.check_out" type="date" />
+            <button class="btn small primary" @click="searchAvailability">Buscar</button>
+          </div>
+          <p v-if="availabilitySummary" class="hint small">{{ availabilitySummary }}</p>
           <div class="rooms">
-            <div v-for="room in rooms" :key="room.ID" class="room" :class="room.status">
+            <div v-for="room in displayRooms" :key="room.ID" class="room" :class="[room.status, availability && !room.available ? 'blocked' : '']">
               <span class="room-num">{{ room.number }}</span>
               <span class="room-type">{{ room.type }}</span>
               <span class="room-rate">{{ fmtCRC(room.base_rate) }}</span>
+              <span v-if="availability && !room.available" class="room-blocked">No libre en fechas</span>
             </div>
           </div>
           <div class="legend">
@@ -84,7 +91,7 @@
             <label>Email<input v-model="form.guest_email" type="email" placeholder="opcional" /></label>
             <label>Habitación
               <select v-model.number="form.room_id" required>
-                <option v-for="r in rooms" :key="r.ID" :value="r.ID">{{ r.number }} · {{ r.type }} · {{ fmtCRC(r.base_rate) }}</option>
+                <option v-for="r in visibleRooms" :key="r.ID" :value="r.ID">{{ r.number }} · {{ r.type }} · {{ fmtCRC(r.base_rate) }}</option>
               </select>
             </label>
             <div class="row">
@@ -126,16 +133,23 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.2.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.5.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 
 const stats = ref({})
 const reservations = ref([])
 const rooms = ref([])
+const availability = ref(null)
+const search = reactive({ check_in: '', check_out: '' })
+const displayRooms = computed(() => availability.value ? availability.value.rooms : rooms.value)
+const visibleRooms = computed(() => displayRooms.value.filter(r => r.available !== false))
+const availabilitySummary = computed(() => availability.value
+  ? `${displayRooms.value.filter(r => r.available).length} de ${displayRooms.value.length} habitaciones libres · ${availability.value.check_in} → ${availability.value.check_out}`
+  : '')
 const hotelName = ref('')
 const charges = ref([])
 const msg = ref('')
@@ -196,6 +210,18 @@ async function loadCharges() {
   if (!folioReservationId.value) { charges.value = []; return }
   try { charges.value = await apiFetch(`/api/reservations/${folioReservationId.value}/charges`).then(x => x.json()) }
   catch (e) { console.error(e) }
+}
+
+async function searchAvailability() {
+  if (!search.check_in || !search.check_out) { notify('Elegí entrada y salida', 'err'); return }
+  try {
+    const res = await apiFetch(`/api/availability?check_in=${search.check_in}&check_out=${search.check_out}`)
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    availability.value = await res.json()
+    form.check_in = search.check_in
+    form.check_out = search.check_out
+    notify('Disponibilidad actualizada')
+  } catch (e) { notify('No se pudo buscar: ' + e.message, 'err') }
 }
 
 async function load() {
@@ -323,6 +349,10 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .room.available { border-color: #34d399; } .room.occupied { border-color: #f87171; }
 .room.cleaning { border-color: #fbbf24; } .room.maintenance { border-color: #64748b; opacity: .7; }
 .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; color: var(--muted); font-size: 12px; }
+.avail-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.avail-search input { flex: 1; min-width: 0; }
+.room.blocked { opacity: .55; border-style: dashed; }
+.room-blocked { font-size: 10px; color: #f87171; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
 .dot.available { background: #34d399; } .dot.occupied { background: #f87171; }
 .dot.cleaning { background: #fbbf24; } .dot.maintenance { background: #64748b; }
