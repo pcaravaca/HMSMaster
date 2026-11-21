@@ -143,6 +143,33 @@
         </div>
 
         <div class="card">
+          <div class="card-head"><h2>Reportes</h2><span class="hint">Ocupación · ADR · RevPAR · canales</span></div>
+          <form @submit.prevent="loadReport">
+            <div class="row">
+              <label>Desde<input v-model="reportForm.from" type="date" required /></label>
+              <label>Hasta<input v-model="reportForm.to" type="date" required /></label>
+            </div>
+            <button class="btn primary" type="submit">Generar reporte</button>
+          </form>
+          <div v-if="report" class="stats mini">
+            <div class="card stat"><span class="stat-value">{{ report.occupancy_pct }}%</span><span class="stat-label">Ocupación</span></div>
+            <div class="card stat"><span class="stat-value">{{ fmtCRC(report.adr) }}</span><span class="stat-label">ADR</span></div>
+            <div class="card stat"><span class="stat-value">{{ fmtCRC(report.revpar) }}</span><span class="stat-label">RevPAR</span></div>
+            <div class="card stat"><span class="stat-value">{{ fmtCRC(report.room_revenue) }}</span><span class="stat-label">Ingreso</span></div>
+          </div>
+          <div v-if="report" class="charges">
+            <div v-for="ch in report.by_channel" :key="ch.channel" class="charge">
+              <span>{{ ch.channel }}</span><span class="hint">{{ ch.reservations }} reservas · {{ fmtCRC(ch.revenue) }}</span>
+            </div>
+          </div>
+          <table v-if="report" class="report-table">
+            <thead><tr><th>Fecha</th><th>Noches</th><th>Ingreso</th></tr></thead>
+            <tbody><tr v-for="d in report.by_day" :key="d.date"><td>{{ d.date }}</td><td>{{ d.occupied }}</td><td class="num">{{ fmtCRC(d.revenue) }}</td></tr></tbody>
+          </table>
+          <p v-if="!report" class="hint">Elegí un rango y generá el reporte.</p>
+        </div>
+
+        <div class="card">
           <div class="card-head"><h2>Limpieza</h2><span class="hint">{{ hkTasks.filter(t => t.status !== 'done').length }} tareas abiertas</span></div>
           <label>Ver
             <select v-model="hkFilter">
@@ -308,7 +335,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.12.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.13.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -363,6 +390,10 @@ const filteredHkTasks = computed(() => hkTasks.value.filter(t => hkFilter.value 
   ? true : hkFilter.value === 'open' ? t.status !== 'done' : t.status === hkFilter.value))
 const hkStatusLabel = (s) => ({ pending: 'Pendiente', in_progress: 'En curso', done: 'Lista' }[s] || s)
 const hkTypeLabel = (s) => ({ checkout_clean: 'Salida', stayover: 'Estancia', maintenance: 'Mantenimiento' }[s] || s)
+const todayISO = new Date().toISOString().slice(0, 10)
+const nextWeekISO = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+const reportForm = reactive({ from: todayISO, to: nextWeekISO })
+const report = ref(null)
 const canAdmin = computed(() => me.value.role === 'admin')
 const canRates = computed(() => ['admin', 'manager'].includes(me.value.role))
 const canOps = computed(() => ['admin', 'manager', 'reception'].includes(me.value.role))
@@ -465,6 +496,7 @@ async function load() {
       if (!channelForm.room_id) channelForm.room_id = rooms.value[0].ID
       if (!hkForm.room_id) hkForm.room_id = rooms.value[0].ID
       await loadQuote()
+      await loadReport()
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
     await loadCharges()
@@ -477,6 +509,15 @@ function onGuestSelect() {
     form.guest_name = [g.first_name, g.last_name].filter(Boolean).join(' ')
     form.guest_email = g.email || ''
   }
+}
+
+async function loadReport() {
+  if (!activeHotelId.value || !reportForm.from || !reportForm.to) return
+  try {
+    const q = `hotel_id=${activeHotelId.value}&from=${reportForm.from}&to=${reportForm.to}`
+    const res = await apiFetch(`/api/reports/summary?${q}`)
+    if (res.ok) report.value = await res.json()
+  } catch (e) { console.error(e) }
 }
 
 async function createHkTask() {
@@ -726,6 +767,9 @@ td { padding: 7px 6px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-alig
 .chip.pending { background: rgba(251,191,36,.15); color: #fbbf24; }
 .chip.received { background: rgba(167,139,250,.15); color: #c4b5fd; }
 .chip.in_progress { background: rgba(96,165,250,.15); color: #60a5fa; }
+.stats.mini { grid-template-columns: repeat(2, 1fr); margin: 12px 0; }
+.report-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.report-table th, .report-table td { padding: 5px 6px; text-align: left; border-bottom: 1px solid rgba(148,163,184,.12); }
 .chip.confirmed { background: rgba(96,165,250,.15); color: #60a5fa; }
 .chip.checked_in { background: rgba(52,211,153,.15); color: #34d399; }
 .chip.checked_out { background: rgba(148,163,184,.15); color: #94a3b8; }

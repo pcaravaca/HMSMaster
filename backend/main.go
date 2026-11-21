@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.12.0"
+const version = "0.13.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -57,6 +57,7 @@ func main() {
 	api.Use(authMiddleware())
 	{
 		api.GET("/auth/me", authMeHandler)
+		api.GET("/reports/summary", reportSummaryHandler(db))
 		api.GET("/housekeeping/tasks", listHousekeepingTasks(db))
 		api.POST("/housekeeping/tasks", guardRoles(createHousekeepingTask(db), "admin","manager","reception","housekeeping"))
 		api.PATCH("/housekeeping/tasks/:id", guardRoles(updateHousekeepingTask(db), "admin","manager","housekeeping"))
