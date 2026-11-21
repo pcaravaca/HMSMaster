@@ -9,7 +9,18 @@
         </div>
       </div>
       <div class="suite-badge" title="Facturación delegada a POSMaster">🛒 POSMaster · facturación</div>
+      <button v-if="token" class="btn small logout" @click="logout">🔐 Salir</button>
     </header>
+
+    <div v-if="needLogin" class="login-overlay">
+      <form class="card login" @submit.prevent="doLogin">
+        <h2>🔐 Acceso HMSMaster</h2>
+        <p class="hint">La sesión es requerida por el servidor.</p>
+        <label>Usuario<input v-model="loginForm.username" required autocomplete="username" /></label>
+        <label>Contraseña<input v-model="loginForm.password" type="password" required autocomplete="current-password" /></label>
+        <button class="btn primary" type="submit">Entrar</button>
+      </form>
+    </div>
 
     <main>
       <section class="stats">
@@ -134,6 +145,46 @@ const form = reactive({ guest_name: '', guest_email: '', room_id: 0, check_in: '
 const charge = reactive({ description: '', amount: 0 })
 let timer = null
 
+const token = ref(localStorage.getItem('hms_token') || '')
+const needLogin = ref(false)
+const loginForm = reactive({ username: '', password: '' })
+
+async function apiFetch(url, options = {}) {
+  const headers = Object.assign({}, options.headers || {})
+  if (token.value) headers['Authorization'] = 'Bearer ' + token.value
+  const res = await fetch(url, Object.assign({}, options, { headers }))
+  if (res.status === 401) {
+    needLogin.value = true
+    token.value = ''
+    localStorage.removeItem('hms_token')
+    throw new Error('Sesión expirada')
+  }
+  return res
+}
+
+async function doLogin() {
+  try {
+    const res = await apiFetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(loginForm)
+    })
+    if (!res.ok) throw new Error('Credenciales inválidas')
+    const data = await res.json()
+    token.value = data.token
+    localStorage.setItem('hms_token', data.token)
+    loginForm.password = ''
+    needLogin.value = false
+    notify('Sesión iniciada')
+    await load()
+  } catch (e) { notify('Login: ' + e.message, 'err') }
+}
+
+function logout() {
+  token.value = ''
+  localStorage.removeItem('hms_token')
+  needLogin.value = true
+}
+
 const crc = new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC', maximumFractionDigits: 0 })
 const fmtCRC = (v) => crc.format(v || 0)
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString('es-CR', { day: '2-digit', month: 'short' }) : '—'
@@ -143,22 +194,22 @@ const notify = (text, type = 'ok') => { msg.value = text; msgType.value = type; 
 
 async function loadCharges() {
   if (!folioReservationId.value) { charges.value = []; return }
-  try { charges.value = await fetch(`/api/reservations/${folioReservationId.value}/charges`).then(x => x.json()) }
+  try { charges.value = await apiFetch(`/api/reservations/${folioReservationId.value}/charges`).then(x => x.json()) }
   catch (e) { console.error(e) }
 }
 
 async function load() {
   try {
     const [s, r, h] = await Promise.all([
-      fetch('/api/stats').then(x => x.json()),
-      fetch('/api/reservations').then(x => x.json()),
-      fetch('/api/hotels').then(x => x.json()),
+      apiFetch('/api/stats').then(x => x.json()),
+      apiFetch('/api/reservations').then(x => x.json()),
+      apiFetch('/api/hotels').then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
     if (h.length) {
       hotelName.value = h[0].name
-      rooms.value = await fetch(`/api/hotels/${h[0].ID}/rooms`).then(x => x.json())
+      rooms.value = await apiFetch(`/api/hotels/${h[0].ID}/rooms`).then(x => x.json())
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
     await loadCharges()
@@ -167,7 +218,7 @@ async function load() {
 
 async function changeStatus(r, status) {
   try {
-    const res = await fetch(`/api/reservations/${r.ID}/status`, {
+    const res = await apiFetch(`/api/reservations/${r.ID}/status`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status })
     })
     if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
@@ -182,7 +233,7 @@ async function createReservation() {
     check_in: form.check_in + 'T14:00:00Z', check_out: form.check_out + 'T12:00:00Z', channel: form.channel
   }
   try {
-    const res = await fetch('/api/reservations', {
+    const res = await apiFetch('/api/reservations', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
     })
     if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
@@ -196,7 +247,7 @@ async function createReservation() {
 
 async function addCharge() {
   try {
-    const res = await fetch(`/api/reservations/${folioReservationId.value}/charges`, {
+    const res = await apiFetch(`/api/reservations/${folioReservationId.value}/charges`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ description: charge.description, amount: Number(charge.amount) })
     })
@@ -282,4 +333,8 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .toast.ok { background: rgba(52,211,153,.15); color: #34d399; border: 1px solid rgba(52,211,153,.4); }
 .toast.err { background: rgba(248,113,113,.15); color: #f87171; border: 1px solid rgba(248,113,113,.4); }
 footer { padding: 14px 28px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--border); }
+.login-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.login { width: 340px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+.login h2 { margin-bottom: 4px; }
+
 </style>
