@@ -25,6 +25,8 @@ Companion system to 🛒 POSMaster.
 
 `env.production` is gitignored; never commit real credentials. The POSMaster
 bridge is optional: leave `POSMASTER_API_URL` empty and folio charges stay local.
+Demo data is opt-in (`HMS_SEED_DEMO=true`). Back up with `sh scripts/backup.sh`;
+dumps land in `backups/` and older ones are pruned automatically.
 
 ## Suite Strategy
 HMSMaster handles the "Long Stay" & "Stay Experience" (Rooms, check-ins, multi-day folios), while POSMaster handles the "Point of Sale" (Retail, restaurants, instantaneous sales, and final payment settlement).

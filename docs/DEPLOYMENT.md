@@ -20,11 +20,11 @@ Two viable paths. Recommendation: **Option A** for the first production release.
 ## Blockers before going live
 1. ~~**Authentication** — the API is open.~~ **DONE (v0.3.0):** optional JWT auth. Set `HMS_JWT_SECRET`, `HMS_ADMIN_USER` and `HMS_ADMIN_PASSWORD` in `env.production` to require `POST /api/auth/login` + Bearer token on all `/api` routes; leaving the secret empty keeps local development open. The frontend shows a login overlay on 401. Verified: no token 401, valid token 200, tampered token 401, bad credentials 401 (Go tests + live container).
 2. **POSMaster bridge credentials** — `POSMASTER_API_URL`, `POSMASTER_API_TOKEN` (admin/cajero JWT), `POSMASTER_TIENDA_ID`, plus `POSMASTER_FORMA_PAGO` and CR IVA rate confirmation (currently hardcoded 13%).
-3. **Production seed** — replace `seed.go` demo hotel/rooms with real property data or make seeding opt-in via env var.
-4. **Backup retention** — define where dumps live and how many days are kept.
+3. ~~**Production seed**~~ **DONE (v0.4.0):** `seed.go` only inserts the demo property when `HMS_SEED_DEMO=true`; default is off, so a fresh production DB starts empty. Local dev data already in the volume is untouched.
+4. ~~**Backup retention**~~ **DONE (v0.4.0):** `scripts/backup.sh` dumps to `./backups/hmsmaster_<timestamp>.sql.gz` and prunes dumps older than `HMS_BACKUP_RETENTION_DAYS` (default 14). Run from cron on the host, e.g. `0 3 * * * cd /opt/HMSMaster && sh scripts/backup.sh >> /var/log/hms-backup.log 2>&1`.
 
 ## Verification checklist (run after any deploy)
-- `GET /health` → `{"status":"healthy","version":"0.3.0",...}`
+- `GET /health` → `{"status":"healthy","version":"0.4.0",...}`
 - `GET /api/stats` shows real counts, not demo numbers.
 - UI loads at the chosen port; action buttons (Confirmar / Check-in / Check-out) work.
 - Create a test folio charge: with the bridge configured, verify `sync_status=synced` and the POSMaster invoice id; without it, verify `local`.

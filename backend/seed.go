@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 	"time"
 
 	"github.com/pcaravaca/HMSMaster/backend/models"
@@ -10,6 +11,10 @@ import (
 
 // seed creates a demo property on first run so the dashboard is never empty.
 func seed(db *gorm.DB) {
+	if os.Getenv("HMS_SEED_DEMO") != "true" {
+		log.Printf("demo seeding disabled (set HMS_SEED_DEMO=true to enable)")
+		return
+	}
 	var count int64
 	db.Model(&models.Hotel{}).Count(&count)
 	if count > 0 {

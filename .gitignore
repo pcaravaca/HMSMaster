@@ -2,6 +2,7 @@
 env.production
 backend/backend.env
 data/
+backups/
 dist/
 node_modules/
 *.log

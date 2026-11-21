@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
