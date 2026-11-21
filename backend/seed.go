@@ -43,17 +43,25 @@ func seed(db *gorm.DB) {
 	}
 	db.Create(&rooms)
 
+	guests := []models.Guest{
+		{HotelID: hotel.ID, FirstName: "María", LastName: "Fernández", Email: "maria@example.com", Phone: "+506 8888-1111", DocumentType: "cedula", DocumentNumber: "1-2345-6789"},
+		{HotelID: hotel.ID, FirstName: "John", LastName: "Carter", Email: "john@example.com", DocumentType: "pasaporte", DocumentNumber: "US1234567"},
+	}
+	db.Create(&guests)
+
 	now := time.Now()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 14, 0, 0, 0, now.Location())
 	res := []models.Reservation{
 		{
 			HotelID: hotel.ID, RoomID: rooms[2].ID, RoomNumber: "103",
+			GuestID: guests[0].ID,
 			GuestName: "María Fernández", GuestEmail: "maria@example.com",
 			CheckIn: today.AddDate(0, 0, -1), CheckOut: today.AddDate(0, 0, 2),
 			TotalAmount: 135000, Status: "checked_in", PaymentStatus: "partial", Channel: "direct",
 		},
 		{
 			HotelID: hotel.ID, RoomID: rooms[4].ID, RoomNumber: "201",
+			GuestID: guests[1].ID,
 			GuestName: "John Carter", GuestEmail: "john@example.com",
 			CheckIn: today, CheckOut: today.AddDate(0, 0, 3),
 			TotalAmount: 210000, Status: "confirmed", PaymentStatus: "unpaid", Channel: "airbnb",

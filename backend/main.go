@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.6.0"
+const version = "0.7.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -34,7 +34,7 @@ func openDB() *gorm.DB {
 
 func main() {
 	db := openDB()
-	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Reservation{}, &models.FolioCharge{}); err != nil {
+	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	seed(db)
@@ -53,6 +53,10 @@ func main() {
 	{
 		api.GET("/stats", statsHandler(db))
 		api.GET("/availability", availabilityHandler(db))
+		api.GET("/guests", listGuests(db))
+		api.POST("/guests", createGuestHandler(db))
+		api.GET("/guests/:id", getGuest(db))
+		api.PATCH("/guests/:id", updateGuest(db))
 		api.GET("/hotels", listHotels(db))
 		api.POST("/hotels", createHotel(db))
 		api.GET("/hotels/:id/rooms", listRooms(db))

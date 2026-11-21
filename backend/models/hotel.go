@@ -29,6 +29,7 @@ type Reservation struct {
 	gorm.Model
 	HotelID       uint      `json:"hotel_id" gorm:"not null;index"`
 	RoomID        uint      `json:"room_id" gorm:"index"`
+	GuestID       uint      `json:"guest_id" gorm:"index"`
 	GuestName     string    `json:"guest_name" gorm:"not null"`
 	GuestEmail    string    `json:"guest_email"`
 	CheckIn       time.Time `json:"check_in" gorm:"not null"`

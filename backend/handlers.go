@@ -119,12 +119,16 @@ func createReservation(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if r.GuestName == "" || r.HotelID == 0 || r.CheckIn.IsZero() || r.CheckOut.IsZero() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "guest_name, hotel_id, check_in and check_out are required"})
+		if r.HotelID == 0 || r.CheckIn.IsZero() || r.CheckOut.IsZero() || (r.GuestID == 0 && r.GuestName == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "hotel_id, check_in, check_out and guest_name (or guest_id) are required"})
 			return
 		}
 		if !r.CheckOut.After(r.CheckIn) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "check_out must be after check_in"})
+			return
+		}
+		if r.RoomID == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "room_id is required"})
 			return
 		}
 		if r.RoomID != 0 {
@@ -157,6 +161,23 @@ func createReservation(db *gorm.DB) gin.HandlerFunc {
 					nights = 1
 				}
 				r.TotalAmount = room.BaseRate * float64(nights)
+			}
+		}
+		if r.GuestID != 0 {
+			var guest models.Guest
+			if err := db.First(&guest, r.GuestID).Error; err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "guest not found"})
+				return
+			}
+			if guest.HotelID != r.HotelID {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "guest belongs to a different hotel"})
+				return
+			}
+			if r.GuestName == "" {
+				r.GuestName = guest.FullName()
+			}
+			if r.GuestEmail == "" {
+				r.GuestEmail = guest.Email
 			}
 		}
 		if r.Status == "" {

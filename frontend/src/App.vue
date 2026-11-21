@@ -90,6 +90,12 @@
         <div class="card">
           <div class="card-head"><h2>Nueva reserva</h2><span class="hint">Tarifa = noches × tarifa base</span></div>
           <form @submit.prevent="createReservation">
+            <label>Huésped registrado
+              <select v-model.number="form.guest_id" @change="onGuestSelect">
+                <option :value="0">— Nuevo huésped —</option>
+                <option v-for="g in guests" :key="g.ID" :value="g.ID">{{ g.first_name }} {{ g.last_name }} · {{ g.document_number }}</option>
+              </select>
+            </label>
             <label>Huésped<input v-model="form.guest_name" required placeholder="Nombre completo" /></label>
             <label>Email<input v-model="form.guest_email" type="email" placeholder="opcional" /></label>
             <label>Habitación
@@ -147,10 +153,36 @@
             <button class="btn primary" type="submit">Agregar propiedad</button>
           </form>
         </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Huéspedes</h2><span class="hint">{{ guests.length }} perfiles</span></div>
+          <label>Buscar<input v-model="guestSearch" placeholder="Nombre, email o documento" /></label>
+          <div class="charges">
+            <div v-for="g in guests.filter(x => !guestSearch || [x.first_name, x.last_name, x.email, x.document_number].join(' ').toLowerCase().includes(guestSearch.toLowerCase()))" :key="g.ID" class="charge">
+              <span>{{ g.first_name }} {{ g.last_name }}</span>
+              <span class="hint">{{ g.document_number }}</span>
+              <button class="btn small" @click="viewGuest(g)">Historial</button>
+            </div>
+            <p v-if="!guests.length" class="hint">Sin huéspedes registrados.</p>
+          </div>
+          <p v-if="guestDetail" class="hint small">{{ guestDetail.guest.first_name }} {{ guestDetail.guest.last_name }} · {{ guestDetail.reservations.length }} estancia(s) · {{ guestDetail.guest.email }}</p>
+          <form @submit.prevent="createGuest">
+            <label>Nombre<input v-model="guestForm.first_name" required placeholder="Nombre" /></label>
+            <label>Apellido<input v-model="guestForm.last_name" placeholder="Apellido" /></label>
+            <label>Email<input v-model="guestForm.email" type="email" placeholder="opcional" /></label>
+            <label>Documento
+              <div class="row">
+                <select v-model="guestForm.document_type"><option value="cedula">Cédula</option><option value="pasaporte">Pasaporte</option><option value="dimex">DIMEX</option></select>
+                <input v-model="guestForm.document_number" placeholder="Número" />
+              </div>
+            </label>
+            <button class="btn primary" type="submit">Agregar huésped</button>
+          </form>
+        </div>
       </section>
     </main>
 
-    <footer>HMSMaster v0.6.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.7.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -171,11 +203,15 @@ const hotelName = ref('')
 const hotels = ref([])
 const activeHotelId = ref(null)
 const propertyForm = reactive({ name: '', address: '', contact_email: '' })
+const guests = ref([])
+const guestSearch = ref('')
+const guestDetail = ref(null)
+const guestForm = reactive({ first_name: '', last_name: '', email: '', phone: '', document_type: 'cedula', document_number: '' })
 const charges = ref([])
 const msg = ref('')
 const msgType = ref('ok')
 const folioReservationId = ref(null)
-const form = reactive({ guest_name: '', guest_email: '', room_id: 0, check_in: '', check_out: '', channel: 'direct' })
+const form = reactive({ guest_id: 0, guest_name: '', guest_email: '', room_id: 0, check_in: '', check_out: '', channel: 'direct' })
 const charge = reactive({ description: '', amount: 0 })
 let timer = null
 
@@ -248,26 +284,62 @@ async function load() {
   try {
     const hid = activeHotelId.value || ''
     const q = hid ? `?hotel_id=${hid}` : ''
-    const [s, r, h] = await Promise.all([
+    const [s, r, h, g] = await Promise.all([
       apiFetch('/api/stats' + q).then(x => x.json()),
       apiFetch('/api/reservations' + q).then(x => x.json()),
       apiFetch('/api/hotels').then(x => x.json()),
+      apiFetch('/api/guests' + q).then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
     hotels.value = h
+    guests.value = g
     if (!activeHotelId.value && h.length) activeHotelId.value = h[0].ID
     const sel = h.find(x => x.ID === activeHotelId.value) || h[0]
     if (sel) {
       hotelName.value = sel.name
       rooms.value = await apiFetch(`/api/hotels/${sel.ID}/rooms`).then(x => x.json())
+      if (!form.room_id && rooms.value.length) form.room_id = rooms.value[0].ID
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
     await loadCharges()
   } catch (e) { console.error('API no disponible', e) }
 }
 
+function onGuestSelect() {
+  const g = guests.value.find(x => x.ID === form.guest_id)
+  if (g) {
+    form.guest_name = [g.first_name, g.last_name].filter(Boolean).join(' ')
+    form.guest_email = g.email || ''
+  }
+}
+
+async function createGuest() {
+  try {
+    const res = await apiFetch('/api/guests', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ hotel_id: activeHotelId.value }, guestForm))
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    const created = await res.json()
+    notify(`Huésped “${created.first_name}” registrado`)
+    Object.keys(guestForm).forEach(k => { guestForm[k] = k === 'document_type' ? 'cedula' : '' })
+    await load()
+    form.guest_id = created.ID
+    onGuestSelect()
+  } catch (e) { notify('No se pudo registrar: ' + e.message, 'err') }
+}
+
+async function viewGuest(g) {
+  try {
+    const res = await apiFetch(`/api/guests/${g.ID}`)
+    if (!res.ok) throw new Error(res.status)
+    guestDetail.value = await res.json()
+  } catch (e) { notify('No se pudo cargar el historial: ' + e.message, 'err') }
+}
+
 function onHotelChange() {
+  guestDetail.value = null
   availability.value = null
   folioReservationId.value = null
   load()
@@ -302,7 +374,7 @@ async function changeStatus(r, status) {
 
 async function createReservation() {
   const payload = {
-    hotel_id: activeHotelId.value, room_id: form.room_id, guest_name: form.guest_name, guest_email: form.guest_email,
+    hotel_id: activeHotelId.value, room_id: form.room_id, guest_id: form.guest_id, guest_name: form.guest_name, guest_email: form.guest_email,
     check_in: form.check_in + 'T14:00:00Z', check_out: form.check_out + 'T12:00:00Z', channel: form.channel
   }
   try {
@@ -404,6 +476,7 @@ input:focus, select:focus { outline: 1px solid var(--accent); }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
 .dot.available { background: #34d399; } .dot.occupied { background: #f87171; }
 .dot.cleaning { background: #fbbf24; } .dot.maintenance { background: #64748b; }
+.charge button { margin-left: auto; }
 .charges { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .charge { display: flex; align-items: center; gap: 8px; font-size: 12px; background: rgba(15,23,42,.6); border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; }
 .charge-amount { color: var(--primary); font-weight: 600; }
