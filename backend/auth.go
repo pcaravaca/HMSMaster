@@ -9,39 +9,60 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"gorm.io/gorm"
 )
 
 func jwtSecret() string { return os.Getenv("HMS_JWT_SECRET") }
 
-// loginHandler issues a 12-hour HS256 token for the single admin account
-// configured via HMS_ADMIN_USER / HMS_ADMIN_PASSWORD. No secrets in the repo.
-func loginHandler(c *gin.Context) {
-	secret := jwtSecret()
-	if secret == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication not configured"})
-		return
+// loginHandler issues a 12-hour HS256 token. Users come from the DB (bcrypt)
+// with the env admin as backward-compatible fallback. No secrets in the repo.
+func loginHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		secret := jwtSecret()
+		if secret == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication not configured"})
+			return
+		}
+		var body struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		role, uid, hotelID, ok := authenticateUser(db, body.Username, body.Password)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		claims := jwt.MapClaims{
+			"sub": body.Username, "role": role, "uid": uid, "hotel_id": hotelID,
+			"exp": time.Now().Add(12 * time.Hour).Unix(),
+		}
+		signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"token": signed, "expires_in": 43200, "role": role})
 	}
-	var body struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
+}
+
+// authMeHandler exposes the current identity to the UI for capability checks.
+func authMeHandler(c *gin.Context) {
+	username, role := "", "admin"
+	if raw, exists := c.Get("claims"); exists {
+		if claims, ok := raw.(map[string]any); ok {
+			if v, ok := claims["sub"].(string); ok {
+				username = v
+			}
+			if v, ok := claims["role"].(string); ok && v != "" {
+				role = v
+			}
+		}
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	user := os.Getenv("HMS_ADMIN_USER")
-	pass := os.Getenv("HMS_ADMIN_PASSWORD")
-	if user == "" || pass == "" || body.Username != user || body.Password != pass {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
-		return
-	}
-	claims := jwt.MapClaims{"sub": body.Username, "exp": time.Now().Add(12 * time.Hour).Unix()}
-	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"token": signed, "expires_in": 43200})
+	c.JSON(http.StatusOK, gin.H{"username": username, "role": role})
 }
 
 // authMiddleware is a no-op while HMS_JWT_SECRET is unset (local development).
@@ -58,7 +79,8 @@ func authMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "bearer token required"})
 			return
 		}
-		token, err := jwt.Parse(strings.TrimSpace(header[7:]), func(t *jwt.Token) (interface{}, error) {
+		claims := jwt.MapClaims{}
+		token, err := jwt.ParseWithClaims(strings.TrimSpace(header[7:]), claims, func(t *jwt.Token) (interface{}, error) {
 			if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 				return nil, fmt.Errorf("unexpected signing method")
 			}
@@ -68,6 +90,7 @@ func authMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
 			return
 		}
+		c.Set("claims", map[string]any(claims))
 		c.Next()
 	}
 }

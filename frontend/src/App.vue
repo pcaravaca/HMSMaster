@@ -12,6 +12,7 @@
       <select v-model.number="activeHotelId" @change="onHotelChange" class="hotel-select" title="Propiedad activa">
         <option v-for="h in hotels" :key="h.ID" :value="h.ID">{{ h.name }}</option>
       </select>
+      <span v-if="token" class="chip role" :title="me.username">{{ me.role }}</span>
       <button v-if="token" class="btn small logout" @click="logout">🔐 Salir</button>
     </header>
 
@@ -49,10 +50,10 @@
                 <td><span class="chip" :class="r.status">{{ statusLabel(r.status) }}</span></td>
                 <td class="num">{{ fmtCRC(r.total_amount) }}</td>
                 <td class="actions">
-                  <button v-if="r.status === 'pending'" class="btn small" @click="changeStatus(r, 'confirmed')">Confirmar</button>
-                  <button v-if="r.status === 'confirmed'" class="btn small primary" @click="changeStatus(r, 'checked_in')">Check-in</button>
-                  <button v-if="r.status === 'checked_in'" class="btn small primary" @click="changeStatus(r, 'checked_out')">Check-out</button>
-                  <button v-if="['pending','confirmed'].includes(r.status)" class="btn small danger" @click="changeStatus(r, 'canceled')">Cancelar</button>
+                  <button v-if="canOps && r.status === 'pending'" class="btn small" @click="changeStatus(r, 'confirmed')">Confirmar</button>
+                  <button v-if="canOps && r.status === 'confirmed'" class="btn small primary" @click="changeStatus(r, 'checked_in')">Check-in</button>
+                  <button v-if="canOps && r.status === 'checked_in'" class="btn small primary" @click="changeStatus(r, 'checked_out')">Check-out</button>
+                  <button v-if="canOps && ['pending','confirmed'].includes(r.status)" class="btn small danger" @click="changeStatus(r, 'canceled')">Cancelar</button>
                   <span v-if="['checked_out','canceled'].includes(r.status)" class="hint">—</span>
                 </td>
               </tr>
@@ -113,7 +114,7 @@
                 <option value="booking">Booking</option><option value="expedia">Expedia</option>
               </select>
             </label>
-            <button class="btn primary" type="submit">Crear reserva</button>
+            <button v-if="canOps" class="btn primary" type="submit">Crear reserva</button>
           </form>
         </div>
 
@@ -129,21 +130,44 @@
               <span>{{ c.description }}</span>
               <span class="charge-amount">{{ fmtCRC(c.amount) }}</span>
               <span class="chip sync" :class="c.sync_status" :title="c.sync_error || ''">{{ syncLabel(c.sync_status) }}</span>
-              <button v-if="['failed','uncertain'].includes(c.sync_status)" class="btn small" @click="retryCharge(c)">Reintentar</button>
+              <button v-if="canBilling && ['failed','uncertain'].includes(c.sync_status)" class="btn small" @click="retryCharge(c)">Reintentar</button>
             </div>
             <p v-if="!charges.length" class="hint">Sin cargos en esta reserva.</p>
           </div>
           <form @submit.prevent="addCharge">
             <label>Descripción<input v-model="charge.description" required placeholder="Ej. Minibar, lavandería" /></label>
             <label>Monto (₡)<input v-model.number="charge.amount" type="number" min="1" step="1" required /></label>
-            <button class="btn primary" type="submit">Agregar cargo</button>
+            <button v-if="canBilling" class="btn primary" type="submit">Agregar cargo</button>
           </form>
           <p class="hint small">Sin POSMASTER_API_URL los cargos quedan locales. Con el token configurado se envían como línea de factura.</p>
         </div>
 
+        <div class="card" v-if="canAdmin">
+          <div class="card-head"><h2>Usuarios y roles</h2><span class="hint">{{ users.length }} cuentas</span></div>
+          <div class="charges">
+            <div v-for="u in users" :key="u.ID" class="charge">
+              <span>{{ u.username }}</span><span class="hint">{{ u.role }} · {{ u.active ? 'activo' : 'inactivo' }}</span>
+              <button v-if="u.username !== me.username" class="btn small" @click="toggleUser(u)">{{ u.active ? 'Desactivar' : 'Activar' }}</button>
+            </div>
+          </div>
+          <form @submit.prevent="createUser">
+            <label>Usuario<input v-model="userForm.username" required minlength="3" /></label>
+            <label>Contraseña<input v-model="userForm.password" type="password" minlength="8" required /></label>
+            <label>Rol
+              <select v-model="userForm.role">
+                <option value="admin">Admin</option><option value="manager">Gerente</option>
+                <option value="reception">Recepción</option><option value="housekeeping">Limpieza</option>
+                <option value="accounting">Contabilidad</option>
+              </select>
+            </label>
+            <button class="btn primary" type="submit">Agregar usuario</button>
+          </form>
+          <p class="hint small">Las contraseñas se guardan como hash bcrypt; solo el admin ve esta tarjeta.</p>
+        </div>
+
         <div class="card">
           <div class="card-head"><h2>Tarifas dinámicas</h2><span class="hint">{{ rateRules.length }} reglas · {{ hotelName }}</span></div>
-          <form @submit.prevent="createRate">
+          <form v-if="canRates" @submit.prevent="createRate">
             <label>Aplica a
               <select v-model.number="rateForm.room_id">
                 <option :value="0">Toda la propiedad</option>
@@ -162,7 +186,7 @@
             <div v-for="r in rateRules" :key="r.ID" class="charge">
               <span>{{ r.room_id ? 'Hab. ' + (rooms.find(x => x.ID === r.room_id)?.number || r.room_id) : 'Toda la propiedad' }}</span>
               <span class="hint">{{ r.start_date }} → {{ r.end_date }} · {{ fmtCRC(r.price) }}</span>
-              <button class="btn small" @click="deleteRate(r)">Eliminar</button>
+              <button v-if="canRates" class="btn small" @click="deleteRate(r)">Eliminar</button>
             </div>
             <p v-if="!rateRules.length" class="hint">Sin reglas: se usa la tarifa base de cada habitación.</p>
           </div>
@@ -176,7 +200,7 @@
               <span>{{ h.name }}</span><span class="hint">{{ h.address }}</span>
             </div>
           </div>
-          <form @submit.prevent="createProperty">
+          <form v-if="canRates" @submit.prevent="createProperty">
             <label>Nombre<input v-model="propertyForm.name" required placeholder="Nueva propiedad" /></label>
             <label>Dirección<input v-model="propertyForm.address" placeholder="Ciudad, país" /></label>
             <button class="btn primary" type="submit">Agregar propiedad</button>
@@ -211,7 +235,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.9.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.10.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -253,6 +277,13 @@ const quoteText = computed(() => {
 })
 let timer = null
 
+const me = ref({ username: '', role: 'admin' })
+const users = ref([])
+const userForm = reactive({ username: '', password: '', role: 'reception' })
+const canAdmin = computed(() => me.value.role === 'admin')
+const canRates = computed(() => ['admin', 'manager'].includes(me.value.role))
+const canOps = computed(() => ['admin', 'manager', 'reception'].includes(me.value.role))
+const canBilling = computed(() => ['admin', 'manager', 'accounting'].includes(me.value.role))
 const token = ref(localStorage.getItem('hms_token') || '')
 const needLogin = ref(false)
 const loginForm = reactive({ username: '', password: '' })
@@ -282,6 +313,7 @@ async function doLogin() {
     localStorage.setItem('hms_token', data.token)
     loginForm.password = ''
     needLogin.value = false
+    await loadMe()
     notify('Sesión iniciada')
     await load()
   } catch (e) { notify('Login: ' + e.message, 'err') }
@@ -322,18 +354,21 @@ async function load() {
   try {
     const hid = activeHotelId.value || ''
     const q = hid ? `?hotel_id=${hid}` : ''
-    const [s, r, h, g, rates] = await Promise.all([
+    const [s, r, h, g, rates, identity] = await Promise.all([
       apiFetch('/api/stats' + q).then(x => x.json()),
       apiFetch('/api/reservations' + q).then(x => x.json()),
       apiFetch('/api/hotels').then(x => x.json()),
       apiFetch('/api/guests' + q).then(x => x.json()),
       apiFetch('/api/rates' + q).then(x => x.json()),
+      apiFetch('/api/auth/me').then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
     hotels.value = h
     guests.value = g
     rateRules.value = rates
+    me.value = identity
+    if (canAdmin.value) users.value = await apiFetch('/api/users').then(x => x.json())
     if (!activeHotelId.value && h.length) activeHotelId.value = h[0].ID
     const sel = h.find(x => x.ID === activeHotelId.value) || h[0]
     if (sel) {
@@ -353,6 +388,32 @@ function onGuestSelect() {
     form.guest_name = [g.first_name, g.last_name].filter(Boolean).join(' ')
     form.guest_email = g.email || ''
   }
+}
+
+async function loadMe() {
+  try { me.value = await apiFetch('/api/auth/me').then(x => x.json()) } catch (e) { console.error(e) }
+}
+
+async function createUser() {
+  try {
+    const res = await apiFetch('/api/users', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(userForm)
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    notify('Usuario creado')
+    userForm.username = ''; userForm.password = ''
+    users.value = await apiFetch('/api/users').then(x => x.json())
+  } catch (e) { notify('No se pudo crear: ' + e.message, 'err') }
+}
+
+async function toggleUser(u) {
+  try {
+    const res = await apiFetch(`/api/users/${u.ID}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: !u.active })
+    })
+    if (!res.ok) throw new Error(res.status)
+    users.value = await apiFetch('/api/users').then(x => x.json())
+  } catch (e) { notify('No se pudo cambiar: ' + e.message, 'err') }
 }
 
 async function loadQuote() {
@@ -534,6 +595,7 @@ td { padding: 7px 6px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-alig
 .chip.local { background: rgba(148,163,184,.15); color: #94a3b8; }
 .chip.synced { background: rgba(52,211,153,.15); color: #34d399; }
 .chip.uncertain { background: rgba(251,191,36,.15); color: #fbbf24; }
+.chip.role { background: rgba(129,140,248,.18); color: #a5b4fc; text-transform: capitalize; }
 .chip.failed { background: rgba(248,113,113,.15); color: #f87171; }
 .actions { white-space: nowrap; }
 .btn { background: var(--accent); color: white; border: 1px solid var(--accent); border-radius: 7px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }

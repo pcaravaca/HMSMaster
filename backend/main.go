@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.9.0"
+const version = "0.10.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -34,12 +34,13 @@ func openDB() *gorm.DB {
 
 func main() {
 	db := openDB()
-	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}); err != nil {
+	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}, &models.User{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	// Partial unique index on existing databases (empty keys are allowed).
 	_ = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_folio_charges_idempotency_key ON folio_charges (idempotency_key) WHERE idempotency_key <> ''").Error
 	seed(db)
+	seedAdminUser(db)
 	startPOSRetryWorker(db)
 
 	gin.SetMode(gin.ReleaseMode)
@@ -49,32 +50,37 @@ func main() {
 		c.JSON(200, gin.H{"status": "healthy", "project": "HMSMaster", "version": version})
 	})
 
-	r.POST("/api/auth/login", loginHandler)
+	r.POST("/api/auth/login", loginHandler(db))
 
 	api := r.Group("/api")
 	api.Use(authMiddleware())
 	{
+		api.GET("/auth/me", authMeHandler)
 		api.GET("/stats", statsHandler(db))
 		api.GET("/availability", availabilityHandler(db))
 		api.GET("/rates", listRates(db))
-		api.POST("/rates", createRate(db))
-		api.DELETE("/rates/:id", deleteRate(db))
+		api.POST("/rates", guardRoles(createRate(db), "admin","manager"))
+		api.DELETE("/rates/:id", guardRoles(deleteRate(db), "admin","manager"))
 		api.GET("/rates/quote", quoteRate(db))
 		api.GET("/posmaster/status", posStatusHandler(db))
-		api.POST("/reservations/:id/charges/:chargeId/retry", retryChargeHandler(db))
+		api.POST("/reservations/:id/charges/:chargeId/retry", guardRoles(retryChargeHandler(db), "admin","manager","accounting"))
+		api.GET("/users", guardRoles(listUsers(db), "admin"))
+		api.POST("/users", guardRoles(createUser(db), "admin"))
+		api.PATCH("/users/:id", guardRoles(updateUser(db), "admin"))
+		api.DELETE("/users/:id", guardRoles(deleteUser(db), "admin"))
 		api.GET("/guests", listGuests(db))
-		api.POST("/guests", createGuestHandler(db))
+		api.POST("/guests", guardRoles(createGuestHandler(db), "admin","manager","reception"))
 		api.GET("/guests/:id", getGuest(db))
-		api.PATCH("/guests/:id", updateGuest(db))
+		api.PATCH("/guests/:id", guardRoles(updateGuest(db), "admin","manager","reception"))
 		api.GET("/hotels", listHotels(db))
-		api.POST("/hotels", createHotel(db))
+		api.POST("/hotels", guardRoles(createHotel(db), "admin","manager"))
 		api.GET("/hotels/:id/rooms", listRooms(db))
-		api.POST("/hotels/:id/rooms", createRoom(db))
+		api.POST("/hotels/:id/rooms", guardRoles(createRoom(db), "admin","manager"))
 		api.GET("/reservations", listReservations(db))
-		api.POST("/reservations", createReservation(db))
-		api.PATCH("/reservations/:id/status", updateReservationStatus(db))
+		api.POST("/reservations", guardRoles(createReservation(db), "admin","manager","reception"))
+		api.PATCH("/reservations/:id/status", guardRoles(updateReservationStatus(db), "admin","manager","reception"))
 		api.GET("/reservations/:id/charges", listCharges(db))
-		api.POST("/reservations/:id/charges", addCharge(db))
+		api.POST("/reservations/:id/charges", guardRoles(addCharge(db), "admin","manager","accounting"))
 	}
 
 	port := os.Getenv("PORT")

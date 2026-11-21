@@ -13,7 +13,7 @@ import (
 func authTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/auth/login", loginHandler)
+	r.POST("/api/auth/login", loginHandler(nil))
 	api := r.Group("/api")
 	api.Use(authMiddleware())
 	api.GET("/stats", func(c *gin.Context) { c.JSON(200, gin.H{"ok": true}) })
