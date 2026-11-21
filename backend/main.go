@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.7.0"
+const version = "0.8.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -37,7 +37,10 @@ func main() {
 	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
+	// Partial unique index on existing databases (empty keys are allowed).
+	_ = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_folio_charges_idempotency_key ON folio_charges (idempotency_key) WHERE idempotency_key <> ''").Error
 	seed(db)
+	startPOSRetryWorker(db)
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -53,6 +56,8 @@ func main() {
 	{
 		api.GET("/stats", statsHandler(db))
 		api.GET("/availability", availabilityHandler(db))
+		api.GET("/posmaster/status", posStatusHandler(db))
+		api.POST("/reservations/:id/charges/:chargeId/retry", retryChargeHandler(db))
 		api.GET("/guests", listGuests(db))
 		api.POST("/guests", createGuestHandler(db))
 		api.GET("/guests/:id", getGuest(db))

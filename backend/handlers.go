@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"time"
@@ -267,17 +268,19 @@ func addCharge(db *gorm.DB) gin.HandlerFunc {
 		ch.ReservationID = r.ID
 		ch.Source = "hms"
 		ch.SyncStatus = "local"
-		// Suite integration: forward the charge to POSMaster for invoicing
-		// when the suite link is configured. Failures keep the charge local.
-		if res := syncChargeToPOSMaster(ch.Description, ch.Amount, r.ID); res.OK {
-			ch.SyncStatus = "synced"
-			ch.POSRef = res.Ref
-		} else if posmasterConfigured() {
-			ch.SyncStatus = "failed"
-		}
 		if err := db.Create(&ch).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+		if ch.IdempotencyKey == "" {
+			ch.IdempotencyKey = idempotencyKey(ch.ID, r.ID)
+			db.Save(&ch)
+		}
+		// Suite integration: the charge is persisted first so its idempotency
+		// key is stable across retries. Uncertain outcomes are never retried
+		// automatically to avoid duplicate invoices.
+		if posmasterConfigured() {
+			log.Printf("charge %d POSMaster sync: %s", ch.ID, retryPOSCharge(db, &ch, false))
 		}
 		c.JSON(http.StatusCreated, ch)
 	}

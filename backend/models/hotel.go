@@ -49,6 +49,9 @@ type FolioCharge struct {
 	Description   string  `json:"description" gorm:"not null"`
 	Amount        float64 `json:"amount" gorm:"not null"`
 	Source        string  `json:"source" gorm:"default:'hms'"` // hms, posmaster
-	POSRef        string  `json:"pos_ref"`                     // POSMaster sale id once synced
-	SyncStatus    string  `json:"sync_status" gorm:"default:'local'"` // local, synced, failed
+	POSRef         string `json:"pos_ref"` // POSMaster invoice id once synced
+	SyncStatus     string `json:"sync_status" gorm:"default:'local'"` // local, pending_sync, synced, failed, uncertain
+	IdempotencyKey string `json:"idempotency_key" gorm:"uniqueIndex;size:64"`
+	SyncAttempts   int    `json:"sync_attempts"`
+	SyncError      string `json:"sync_error" gorm:"size:500"`
 }

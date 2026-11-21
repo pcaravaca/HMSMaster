@@ -11,6 +11,7 @@ Companion system to 🛒 POSMaster.
 - **Unified Guest Profiles**: `Guest` records with document, contact and stay history. Reservations link by `guest_id` and inherit name/email; `GET /api/guests/:id` returns the guest plus all their stays.
 - **Availability Search**: `GET /api/availability?check_in=YYYY-MM-DD&check_out=YYYY-MM-DD` returns every room with its free/busy status and conflicting reservation ids.
 - **POSMaster Integration**: Seamless forwarding of folio charges to POSMaster for official invoicing.
+- **Resilient Invoicing**: each charge carries an idempotency key; outcomes are `synced`, `failed` or `uncertain` (unknown outcomes are never auto-retried). `POST /api/reservations/:id/charges/:chargeId/retry` looks for an existing invoice before re-posting, and a conservative worker retries only definitive failures up to 3 times. `GET /api/posmaster/status` exposes the counts.
 - **Dark Indigo Theme**: Matches POSMaster's aura-dark-indigo visual language.
 
 ## Architecture

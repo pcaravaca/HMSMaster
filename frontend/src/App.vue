@@ -128,7 +128,8 @@
             <div v-for="c in charges" :key="c.ID" class="charge">
               <span>{{ c.description }}</span>
               <span class="charge-amount">{{ fmtCRC(c.amount) }}</span>
-              <span class="chip sync" :class="c.sync_status">{{ syncLabel(c.sync_status) }}</span>
+              <span class="chip sync" :class="c.sync_status" :title="c.sync_error || ''">{{ syncLabel(c.sync_status) }}</span>
+              <button v-if="['failed','uncertain'].includes(c.sync_status)" class="btn small" @click="retryCharge(c)">Reintentar</button>
             </div>
             <p v-if="!charges.length" class="hint">Sin cargos en esta reserva.</p>
           </div>
@@ -182,7 +183,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.7.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.8.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -259,7 +260,7 @@ const crc = new Intl.NumberFormat('es-CR', { style: 'currency', currency: 'CRC',
 const fmtCRC = (v) => crc.format(v || 0)
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString('es-CR', { day: '2-digit', month: 'short' }) : '—'
 const statusLabel = (s) => ({ pending: 'Pendiente', confirmed: 'Confirmada', checked_in: 'Check-in', checked_out: 'Check-out', canceled: 'Cancelada' }[s] || s)
-const syncLabel = (s) => ({ local: 'Local', synced: 'Facturado', failed: 'Error sync' }[s] || s)
+const syncLabel = (s) => ({ local: 'Local', synced: 'Facturado', failed: 'Error sync', uncertain: 'Revisar', pending_sync: 'Enviando' }[s] || s)
 const notify = (text, type = 'ok') => { msg.value = text; msgType.value = type; setTimeout(() => { msg.value = '' }, 5000) }
 
 async function loadCharges() {
@@ -328,6 +329,16 @@ async function createGuest() {
     form.guest_id = created.ID
     onGuestSelect()
   } catch (e) { notify('No se pudo registrar: ' + e.message, 'err') }
+}
+
+async function retryCharge(c) {
+  try {
+    const res = await apiFetch(`/api/reservations/${folioReservationId.value}/charges/${c.ID}/retry`, { method: 'POST' })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    const data = await res.json()
+    notify(data.message)
+    await loadCharges()
+  } catch (e) { notify('No se pudo reintentar: ' + e.message, 'err') }
 }
 
 async function viewGuest(g) {
@@ -449,6 +460,7 @@ td { padding: 7px 6px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-alig
 .chip.sync { margin-left: auto; }
 .chip.local { background: rgba(148,163,184,.15); color: #94a3b8; }
 .chip.synced { background: rgba(52,211,153,.15); color: #34d399; }
+.chip.uncertain { background: rgba(251,191,36,.15); color: #fbbf24; }
 .chip.failed { background: rgba(248,113,113,.15); color: #f87171; }
 .actions { white-space: nowrap; }
 .btn { background: var(--accent); color: white; border: 1px solid var(--accent); border-radius: 7px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
