@@ -9,6 +9,9 @@
         </div>
       </div>
       <div class="suite-badge" title="Facturación delegada a POSMaster">🛒 POSMaster · facturación</div>
+      <select v-model.number="activeHotelId" @change="onHotelChange" class="hotel-select" title="Propiedad activa">
+        <option v-for="h in hotels" :key="h.ID" :value="h.ID">{{ h.name }}</option>
+      </select>
       <button v-if="token" class="btn small logout" @click="logout">🔐 Salir</button>
     </header>
 
@@ -130,10 +133,24 @@
           </form>
           <p class="hint small">Sin POSMASTER_API_URL los cargos quedan locales. Con el token configurado se envían como línea de factura.</p>
         </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Propiedades</h2><span class="hint">{{ hotels.length }} en la suite</span></div>
+          <div class="charges">
+            <div v-for="h in hotels" :key="h.ID" class="charge">
+              <span>{{ h.name }}</span><span class="hint">{{ h.address }}</span>
+            </div>
+          </div>
+          <form @submit.prevent="createProperty">
+            <label>Nombre<input v-model="propertyForm.name" required placeholder="Nueva propiedad" /></label>
+            <label>Dirección<input v-model="propertyForm.address" placeholder="Ciudad, país" /></label>
+            <button class="btn primary" type="submit">Agregar propiedad</button>
+          </form>
+        </div>
       </section>
     </main>
 
-    <footer>HMSMaster v0.5.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.6.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -151,6 +168,9 @@ const availabilitySummary = computed(() => availability.value
   ? `${displayRooms.value.filter(r => r.available).length} de ${displayRooms.value.length} habitaciones libres · ${availability.value.check_in} → ${availability.value.check_out}`
   : '')
 const hotelName = ref('')
+const hotels = ref([])
+const activeHotelId = ref(null)
+const propertyForm = reactive({ name: '', address: '', contact_email: '' })
 const charges = ref([])
 const msg = ref('')
 const msgType = ref('ok')
@@ -215,7 +235,7 @@ async function loadCharges() {
 async function searchAvailability() {
   if (!search.check_in || !search.check_out) { notify('Elegí entrada y salida', 'err'); return }
   try {
-    const res = await apiFetch(`/api/availability?check_in=${search.check_in}&check_out=${search.check_out}`)
+    const res = await apiFetch(`/api/availability?check_in=${search.check_in}&check_out=${search.check_out}&hotel_id=${activeHotelId.value}`)
     if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
     availability.value = await res.json()
     form.check_in = search.check_in
@@ -226,20 +246,47 @@ async function searchAvailability() {
 
 async function load() {
   try {
+    const hid = activeHotelId.value || ''
+    const q = hid ? `?hotel_id=${hid}` : ''
     const [s, r, h] = await Promise.all([
-      apiFetch('/api/stats').then(x => x.json()),
-      apiFetch('/api/reservations').then(x => x.json()),
+      apiFetch('/api/stats' + q).then(x => x.json()),
+      apiFetch('/api/reservations' + q).then(x => x.json()),
       apiFetch('/api/hotels').then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
-    if (h.length) {
-      hotelName.value = h[0].name
-      rooms.value = await apiFetch(`/api/hotels/${h[0].ID}/rooms`).then(x => x.json())
+    hotels.value = h
+    if (!activeHotelId.value && h.length) activeHotelId.value = h[0].ID
+    const sel = h.find(x => x.ID === activeHotelId.value) || h[0]
+    if (sel) {
+      hotelName.value = sel.name
+      rooms.value = await apiFetch(`/api/hotels/${sel.ID}/rooms`).then(x => x.json())
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
     await loadCharges()
   } catch (e) { console.error('API no disponible', e) }
+}
+
+function onHotelChange() {
+  availability.value = null
+  folioReservationId.value = null
+  load()
+}
+
+async function createProperty() {
+  try {
+    const res = await apiFetch('/api/hotels', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(propertyForm)
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    const created = await res.json()
+    notify(`Propiedad “${created.name}” agregada`)
+    propertyForm.name = ''; propertyForm.address = ''
+    activeHotelId.value = created.ID
+    availability.value = null
+    await load()
+  } catch (e) { notify('No se pudo agregar: ' + e.message, 'err') }
 }
 
 async function changeStatus(r, status) {
@@ -255,7 +302,7 @@ async function changeStatus(r, status) {
 
 async function createReservation() {
   const payload = {
-    hotel_id: 1, room_id: form.room_id, guest_name: form.guest_name, guest_email: form.guest_email,
+    hotel_id: activeHotelId.value, room_id: form.room_id, guest_name: form.guest_name, guest_email: form.guest_email,
     check_in: form.check_in + 'T14:00:00Z', check_out: form.check_out + 'T12:00:00Z', channel: form.channel
   }
   try {
@@ -301,6 +348,7 @@ body { background: var(--bg); color: var(--text); font-family: 'Inter', system-u
 .logo { font-size: 30px; }
 h1 { font-size: 20px; letter-spacing: .3px; }
 .sub { color: var(--muted); font-size: 12px; }
+.hotel-select { max-width: 210px; }
 .suite-badge { background: rgba(99,102,241,.15); color: var(--primary); border: 1px solid var(--accent); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
 main { padding: 24px 28px; flex: 1; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 20px; }

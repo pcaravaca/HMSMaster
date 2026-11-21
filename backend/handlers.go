@@ -14,15 +14,22 @@ import (
 func statsHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var hotels, rooms, reservations, occupied, inHouse, arrivals int64
-		db.Model(&models.Hotel{}).Count(&hotels)
-		db.Model(&models.Room{}).Count(&rooms)
-		db.Model(&models.Reservation{}).Count(&reservations)
-		db.Model(&models.Room{}).Where("status = ?", "occupied").Count(&occupied)
-		db.Model(&models.Reservation{}).Where("status = ?", "checked_in").Count(&inHouse)
+		roomScope := func() *gorm.DB { return db.Model(&models.Room{}) }
+		resScope := func() *gorm.DB { return db.Model(&models.Reservation{}) }
+		if hid := c.Query("hotel_id"); hid != "" {
+			id := parseID(hid)
+			roomScope = func() *gorm.DB { return db.Model(&models.Room{}).Where("hotel_id = ?", id) }
+			resScope = func() *gorm.DB { return db.Model(&models.Reservation{}).Where("hotel_id = ?", id) }
+			db.Model(&models.Hotel{}).Where("id = ?", id).Count(&hotels)
+		} else {
+			db.Model(&models.Hotel{}).Count(&hotels)
+		}
+		roomScope().Count(&rooms)
+		resScope().Count(&reservations)
+		roomScope().Where("status = ?", "occupied").Count(&occupied)
+		resScope().Where("status = ?", "checked_in").Count(&inHouse)
 		today := time.Now().Format("2006-01-02")
-		db.Model(&models.Reservation{}).
-			Where("DATE(check_in) = ? AND status IN ?", today, []string{"pending", "confirmed"}).
-			Count(&arrivals)
+		resScope().Where("DATE(check_in) = ? AND status IN ?", today, []string{"pending", "confirmed"}).Count(&arrivals)
 		occupancy := 0.0
 		if rooms > 0 {
 			occupancy = float64(occupied) / float64(rooms) * 100
@@ -96,6 +103,9 @@ func listReservations(db *gorm.DB) gin.HandlerFunc {
 		q := db.Order("check_in")
 		if s := c.Query("status"); s != "" {
 			q = q.Where("status = ?", s)
+		}
+		if hid := c.Query("hotel_id"); hid != "" {
+			q = q.Where("hotel_id = ?", parseID(hid))
 		}
 		q.Find(&res)
 		c.JSON(http.StatusOK, res)
