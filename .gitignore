@@ -1,0 +1,8 @@
+.env.*
+env.production
+backend/backend.env
+data/
+dist/
+node_modules/
+*.log
+.DS_Store
