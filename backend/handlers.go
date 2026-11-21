@@ -239,6 +239,7 @@ func updateReservationStatus(db *gorm.DB) gin.HandlerFunc {
 				db.Model(&models.Room{}).Where("id = ?", r.RoomID).Update("status", "occupied")
 			case "checked_out":
 				db.Model(&models.Room{}).Where("id = ?", r.RoomID).Update("status", "cleaning")
+				ensureCheckoutTask(db, &r)
 			case "canceled":
 				db.Model(&models.Room{}).Where("id = ?", r.RoomID).Update("status", "available")
 			}

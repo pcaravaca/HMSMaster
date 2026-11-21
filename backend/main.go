@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.11.0"
+const version = "0.12.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -34,7 +34,7 @@ func openDB() *gorm.DB {
 
 func main() {
 	db := openDB()
-	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}, &models.User{}, &models.ChannelBooking{}); err != nil {
+	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}, &models.User{}, &models.ChannelBooking{}, &models.HousekeepingTask{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
 	// Partial unique index on existing databases (empty keys are allowed).
@@ -57,6 +57,9 @@ func main() {
 	api.Use(authMiddleware())
 	{
 		api.GET("/auth/me", authMeHandler)
+		api.GET("/housekeeping/tasks", listHousekeepingTasks(db))
+		api.POST("/housekeeping/tasks", guardRoles(createHousekeepingTask(db), "admin","manager","reception","housekeeping"))
+		api.PATCH("/housekeeping/tasks/:id", guardRoles(updateHousekeepingTask(db), "admin","manager","housekeeping"))
 		api.POST("/channels/bookings", guardRoles(createChannelBooking(db), "admin","manager","reception"))
 		api.GET("/channels/bookings", listChannelBookings(db))
 		api.POST("/channels/bookings/:id/cancel", guardRoles(cancelChannelBooking(db), "admin","manager","reception"))

@@ -143,6 +143,44 @@
         </div>
 
         <div class="card">
+          <div class="card-head"><h2>Limpieza</h2><span class="hint">{{ hkTasks.filter(t => t.status !== 'done').length }} tareas abiertas</span></div>
+          <label>Ver
+            <select v-model="hkFilter">
+              <option value="open">Abiertas</option><option value="pending">Pendientes</option>
+              <option value="in_progress">En curso</option><option value="done">Listas</option>
+              <option value="all">Todas</option>
+            </select>
+          </label>
+          <form v-if="canClean" @submit.prevent="createHkTask">
+            <label>Habitación
+              <select v-model.number="hkForm.room_id">
+                <option v-for="r in rooms" :key="r.ID" :value="r.ID">{{ r.number }} · {{ r.status }}</option>
+              </select>
+            </label>
+            <label>Tipo
+              <select v-model="hkForm.type">
+                <option value="checkout_clean">Limpieza de salida</option>
+                <option value="stayover">Limpieza en estancia</option>
+                <option value="maintenance">Mantenimiento</option>
+              </select>
+            </label>
+            <label>Nota<input v-model="hkForm.notes" placeholder="Ej. revisar minibar" /></label>
+            <button class="btn primary" type="submit">Crear tarea</button>
+          </form>
+          <div class="charges">
+            <div v-for="t in filteredHkTasks" :key="t.ID" class="charge">
+              <span><b>Hab. {{ t.room_number }}</b> · {{ hkTypeLabel(t.type) }}</span>
+              <span class="hint">{{ t.assigned_to || 'sin asignar' }}{{ t.notes ? ' · ' + t.notes : '' }}</span>
+              <span class="chip" :class="t.status">{{ hkStatusLabel(t.status) }}</span>
+              <button v-if="canClean && t.status === 'pending'" class="btn small" @click="updateHkTask(t, 'in_progress')">Tomar</button>
+              <button v-if="canClean && t.status !== 'done'" class="btn small primary" @click="updateHkTask(t, 'done')">Completar</button>
+            </div>
+            <p v-if="!filteredHkTasks.length" class="hint">Sin tareas en esta vista.</p>
+          </div>
+          <p class="hint small">El check-out crea una tarea y pone la habitación en limpieza; al completarla vuelve a disponible.</p>
+        </div>
+
+        <div class="card">
           <div class="card-head"><h2>Canales OTA</h2><span class="hint">{{ channelBookings.length }} reservas entrantes</span></div>
           <form v-if="canOps" @submit.prevent="createChannelBooking">
             <label>Canal
@@ -270,7 +308,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.11.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.12.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -317,6 +355,14 @@ const users = ref([])
 const userForm = reactive({ username: '', password: '', role: 'reception' })
 const channelBookings = ref([])
 const channelForm = reactive({ channel: 'airbnb', external_id: '', guest_name: '', room_id: 0, check_in: '', check_out: '' })
+const hkTasks = ref([])
+const hkFilter = ref('open')
+const hkForm = reactive({ room_id: 0, type: 'checkout_clean', notes: '' })
+const canClean = computed(() => ['admin', 'manager', 'reception', 'housekeeping'].includes(me.value.role))
+const filteredHkTasks = computed(() => hkTasks.value.filter(t => hkFilter.value === 'all'
+  ? true : hkFilter.value === 'open' ? t.status !== 'done' : t.status === hkFilter.value))
+const hkStatusLabel = (s) => ({ pending: 'Pendiente', in_progress: 'En curso', done: 'Lista' }[s] || s)
+const hkTypeLabel = (s) => ({ checkout_clean: 'Salida', stayover: 'Estancia', maintenance: 'Mantenimiento' }[s] || s)
 const canAdmin = computed(() => me.value.role === 'admin')
 const canRates = computed(() => ['admin', 'manager'].includes(me.value.role))
 const canOps = computed(() => ['admin', 'manager', 'reception'].includes(me.value.role))
@@ -391,7 +437,7 @@ async function load() {
   try {
     const hid = activeHotelId.value || ''
     const q = hid ? `?hotel_id=${hid}` : ''
-    const [s, r, h, g, rates, identity, incoming] = await Promise.all([
+    const [s, r, h, g, rates, identity, incoming, hk] = await Promise.all([
       apiFetch('/api/stats' + q).then(x => x.json()),
       apiFetch('/api/reservations' + q).then(x => x.json()),
       apiFetch('/api/hotels').then(x => x.json()),
@@ -399,6 +445,7 @@ async function load() {
       apiFetch('/api/rates' + q).then(x => x.json()),
       apiFetch('/api/auth/me').then(x => x.json()),
       apiFetch('/api/channels/bookings' + q).then(x => x.json()),
+      apiFetch('/api/housekeeping/tasks' + q).then(x => x.json()),
     ])
     stats.value = s
     reservations.value = r
@@ -407,6 +454,7 @@ async function load() {
     rateRules.value = rates
     me.value = identity
     channelBookings.value = incoming
+    hkTasks.value = hk
     if (canAdmin.value) users.value = await apiFetch('/api/users').then(x => x.json())
     if (!activeHotelId.value && h.length) activeHotelId.value = h[0].ID
     const sel = h.find(x => x.ID === activeHotelId.value) || h[0]
@@ -415,6 +463,7 @@ async function load() {
       rooms.value = await apiFetch(`/api/hotels/${sel.ID}/rooms`).then(x => x.json())
       if (!form.room_id && rooms.value.length) form.room_id = rooms.value[0].ID
       if (!channelForm.room_id) channelForm.room_id = rooms.value[0].ID
+      if (!hkForm.room_id) hkForm.room_id = rooms.value[0].ID
       await loadQuote()
     }
     if (!folioReservationId.value && r.length) folioReservationId.value = r[0].ID
@@ -428,6 +477,31 @@ function onGuestSelect() {
     form.guest_name = [g.first_name, g.last_name].filter(Boolean).join(' ')
     form.guest_email = g.email || ''
   }
+}
+
+async function createHkTask() {
+  try {
+    const res = await apiFetch('/api/housekeeping/tasks', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hotel_id: activeHotelId.value, ...hkForm })
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    notify('Tarea de limpieza creada')
+    hkForm.notes = ''
+    await load()
+  } catch (e) { notify('No se pudo crear: ' + e.message, 'err') }
+}
+
+async function updateHkTask(t, status) {
+  try {
+    const res = await apiFetch(`/api/housekeeping/tasks/${t.ID}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || res.status) }
+    notify(status === 'done' ? 'Habitación disponible' : 'Tarea tomada')
+    await load()
+  } catch (e) { notify('No se pudo actualizar: ' + e.message, 'err') }
 }
 
 async function createChannelBooking() {
@@ -651,6 +725,7 @@ td { padding: 7px 6px; border-bottom: 1px solid rgba(51,65,85,.5); vertical-alig
 .chip { border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 600; }
 .chip.pending { background: rgba(251,191,36,.15); color: #fbbf24; }
 .chip.received { background: rgba(167,139,250,.15); color: #c4b5fd; }
+.chip.in_progress { background: rgba(96,165,250,.15); color: #60a5fa; }
 .chip.confirmed { background: rgba(96,165,250,.15); color: #60a5fa; }
 .chip.checked_in { background: rgba(52,211,153,.15); color: #34d399; }
 .chip.checked_out { background: rgba(148,163,184,.15); color: #94a3b8; }
