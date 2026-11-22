@@ -1,5 +1,25 @@
 <template>
   <div class="app">
+    <aside class="sidebar">
+      <div class="side-brand"><span class="logo">🏨</span><div><strong>HMSMaster</strong><small>Suite Administrativa</small></div></div>
+      <nav class="side-nav">
+        <div class="nav-group">Operación</div>
+        <button :class="{ active: activeView === 'panel' }" @click="activeView = 'panel'">▦ Panel</button>
+        <button :class="{ active: activeView === 'reservas' }" @click="activeView = 'reservas'">▤ Reservas</button>
+        <button :class="{ active: activeView === 'habitaciones' }" @click="activeView = 'habitaciones'">▥ Habitaciones</button>
+        <button :class="{ active: activeView === 'huespedes' }" @click="activeView = 'huespedes'">◉ Huéspedes</button>
+        <button :class="{ active: activeView === 'folio' }" @click="activeView = 'folio'">▧ Folio · POSMaster</button>
+        <div class="nav-group">Configuración</div>
+        <button :class="{ active: activeView === 'propiedades' }" @click="activeView = 'propiedades'">⬡ Propiedades</button>
+        <button :class="{ active: activeView === 'tarifas' }" @click="activeView = 'tarifas'">◇ Tarifas dinámicas</button>
+        <button :class="{ active: activeView === 'canales' }" @click="activeView = 'canales'">⇄ Canales OTA</button>
+        <button :class="{ active: activeView === 'limpieza' }" @click="activeView = 'limpieza'">✦ Limpieza</button>
+        <button :class="{ active: activeView === 'reportes' }" @click="activeView = 'reportes'">▨ Reportes</button>
+        <button :class="{ active: activeView === 'usuarios' }" @click="activeView = 'usuarios'">◈ Usuarios y roles</button>
+      </nav>
+      <div class="side-foot">v0.15.0 · navegación por módulos</div>
+    </aside>
+    <div class="workspace">
     <header class="topbar">
       <div class="brand">
         <span class="logo">🏨</span>
@@ -8,6 +28,7 @@
           <p class="sub">Hotel Management System · Suite Administrativa</p>
         </div>
       </div>
+      <span class="page-title">{{ pageTitle }}</span>
       <div class="suite-badge" title="Facturación delegada a POSMaster">🛒 POSMaster · facturación</div>
       <select v-model.number="activeHotelId" @change="onHotelChange" class="hotel-select" title="Propiedad activa">
         <option v-for="h in hotels" :key="h.ID" :value="h.ID">{{ h.name }}</option>
@@ -27,7 +48,7 @@
     </div>
 
     <main>
-      <section class="stats">
+      <section class="stats" v-if="activeView === 'panel'">
         <div class="card stat"><span class="stat-value">{{ stats.occupancy_pct?.toFixed(0) ?? '—' }}%</span><span class="stat-label">Ocupación</span></div>
         <div class="card stat"><span class="stat-value">{{ stats.rooms ?? '—' }}</span><span class="stat-label">Habitaciones</span></div>
         <div class="card stat"><span class="stat-value">{{ stats.in_house ?? '—' }}</span><span class="stat-label">In-house</span></div>
@@ -38,7 +59,7 @@
       <p v-if="msg" class="toast" :class="msgType">{{ msg }}</p>
 
       <section class="grid">
-        <div class="card">
+        <div class="card" v-if="activeView === 'reservas'">
           <div class="card-head"><h2>Reservas</h2><span class="hint">Acciones por estado</span></div>
           <table>
             <thead><tr><th>Huésped</th><th>Hab.</th><th>Canal</th><th>Entrada</th><th>Salida</th><th>Estado</th><th class="num">Total</th><th>Acción</th></tr></thead>
@@ -62,7 +83,7 @@
           </table>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'habitaciones'">
           <h2>Habitaciones · {{ hotelName }}</h2>
           <div class="avail-search">
             <input v-model="search.check_in" type="date" />
@@ -88,7 +109,7 @@
       </section>
 
       <section class="grid ops">
-        <div class="card">
+        <div class="card" v-if="activeView === 'reservas'">
           <div class="card-head"><h2>Nueva reserva</h2><span class="hint">{{ quoteText }}</span></div>
           <form @submit.prevent="createReservation">
             <label>Huésped registrado
@@ -118,7 +139,7 @@
           </form>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'folio'">
           <div class="card-head"><h2>Folio · POSMaster</h2><span class="hint">Cargos → /api/facturas</span></div>
           <label>Reserva
             <select v-model.number="folioReservationId" @change="loadCharges">
@@ -142,7 +163,7 @@
           <p class="hint small">Sin POSMASTER_API_URL los cargos quedan locales. Con el token configurado se envían como línea de factura.</p>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'reportes'">
           <div class="card-head"><h2>Reportes</h2><span class="hint">Ocupación · ADR · RevPAR · canales</span></div>
           <form @submit.prevent="loadReport">
             <div class="row">
@@ -169,7 +190,7 @@
           <p v-if="!report" class="hint">Elegí un rango y generá el reporte.</p>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'limpieza'">
           <div class="card-head"><h2>Limpieza</h2><span class="hint">{{ hkTasks.filter(t => t.status !== 'done').length }} tareas abiertas</span></div>
           <label>Ver
             <select v-model="hkFilter">
@@ -207,7 +228,7 @@
           <p class="hint small">El check-out crea una tarea y pone la habitación en limpieza; al completarla vuelve a disponible.</p>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'canales'">
           <div class="card-head"><h2>Canales OTA</h2><span class="hint">{{ channelBookings.length }} reservas entrantes</span></div>
           <form v-if="canOps" @submit.prevent="createChannelBooking">
             <label>Canal
@@ -242,7 +263,7 @@
           La repetición de la misma referencia externa no crea una reserva duplicada.</p>
         </div>
 
-        <div class="card" v-if="canAdmin">
+        <div class="card" v-if="activeView === 'usuarios' && canAdmin">
           <div class="card-head"><h2>Usuarios y roles</h2><span class="hint">{{ users.length }} cuentas</span></div>
           <div class="charges">
             <div v-for="u in users" :key="u.ID" class="charge">
@@ -265,7 +286,7 @@
           <p class="hint small">Las contraseñas se guardan como hash bcrypt; solo el admin ve esta tarjeta.</p>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'tarifas'">
           <div class="card-head"><h2>Tarifas dinámicas</h2><span class="hint">{{ rateRules.length }} reglas · {{ hotelName }}</span></div>
           <form v-if="canRates" @submit.prevent="createRate">
             <label>Aplica a
@@ -293,7 +314,7 @@
           <p class="hint small">Una regla por habitación gana sobre la de propiedad; entre reglas iguales gana la más reciente.</p>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'propiedades'">
           <div class="card-head"><h2>Propiedades</h2><span class="hint">{{ hotels.length }} en la suite</span></div>
           <div class="charges">
             <div v-for="h in hotels" :key="h.ID" class="charge">
@@ -307,7 +328,7 @@
           </form>
         </div>
 
-        <div class="card">
+        <div class="card" v-if="activeView === 'huespedes'">
           <div class="card-head"><h2>Huéspedes</h2><span class="hint">{{ guests.length }} perfiles</span></div>
           <label>Buscar<input v-model="guestSearch" placeholder="Nombre, email o documento" /></label>
           <div class="charges">
@@ -335,7 +356,8 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.14.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.15.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    </div>
   </div>
 </template>
 
@@ -400,6 +422,14 @@ const canOps = computed(() => ['admin', 'manager', 'reception'].includes(me.valu
 const canBilling = computed(() => ['admin', 'manager', 'accounting'].includes(me.value.role))
 const token = ref(localStorage.getItem('hms_token') || '')
 const needLogin = ref(false)
+const activeView = ref('panel')
+const viewLabels = {
+  panel: 'Panel', reservas: 'Reservas', habitaciones: 'Habitaciones',
+  huespedes: 'Huéspedes', folio: 'Folio · POSMaster', propiedades: 'Propiedades',
+  tarifas: 'Tarifas dinámicas', canales: 'Canales OTA', limpieza: 'Limpieza',
+  reportes: 'Reportes', usuarios: 'Usuarios y roles'
+}
+const pageTitle = computed(() => viewLabels[activeView.value] || 'Panel')
 const loginForm = reactive({ username: '', password: '' })
 
 async function apiFetch(url, options = {}) {
@@ -742,7 +772,21 @@ onUnmounted(() => clearInterval(timer))
 }
 * { box-sizing: border-box; margin: 0; }
 body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; }
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+.app { min-height: 100vh; display: grid; grid-template-columns: 232px minmax(0, 1fr); }
+.workspace { display: flex; flex-direction: column; min-width: 0; }
+.sidebar { background: #172033; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 100vh; }
+.side-brand { display: flex; align-items: center; gap: 10px; padding: 18px 16px; border-bottom: 1px solid var(--border); }
+.side-brand strong { display: block; font-size: 14px; }
+.side-brand small { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; }
+.side-nav { padding: 12px 10px; flex: 1; }
+.nav-group { color: var(--muted); font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 12px 10px 6px; }
+.side-nav button { display: block; width: 100%; text-align: left; background: transparent; border: 0; border-left: 2px solid transparent; color: var(--muted); font: inherit; font-size: 13px; padding: 9px 10px; border-radius: 7px; cursor: pointer; margin-bottom: 2px; }
+.side-nav button:hover { background: rgba(129,140,248,.08); color: var(--text); }
+.side-nav button.active { background: rgba(99,102,241,.18); color: #c7d2fe; border-left-color: var(--primary); font-weight: 600; }
+.side-foot { padding: 14px 16px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted); }
+.page-title { font-size: 15px; font-weight: 700; white-space: nowrap; }
+@media (max-width: 820px) { .app { grid-template-columns: 1fr; } .sidebar { display: none; } }
+
 .topbar { display: flex; justify-content: space-between; align-items: center; padding: 16px 28px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .brand { display: flex; gap: 12px; align-items: center; }
 .logo { font-size: 30px; }
