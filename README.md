@@ -19,6 +19,12 @@ Companion system to 🛒 POSMaster.
 - **Resilient Invoicing**: each charge carries an idempotency key; outcomes are `synced`, `failed` or `uncertain` (unknown outcomes are never auto-retried). `POST /api/reservations/:id/charges/:chargeId/retry` looks for an existing invoice before re-posting, and a conservative worker retries only definitive failures up to 3 times. `GET /api/posmaster/status` exposes the counts.
 - **Dark Indigo Theme**: Matches POSMaster's aura-dark-indigo visual language.
 
+## Migrations & CI
+
+- SQL migrations live in `backend/migrations/` and are embedded in the binary. They run in filename order before `AutoMigrate`, each inside a transaction, and are recorded in `schema_migrations` with a SHA-256 checksum. Editing an already-applied file fails startup instead of drifting silently.
+- `GET /api/migrations` (admin/manager) lists the applied versions and checksums.
+- `.github/workflows/ci.yml` runs `go test ./...` + `go build ./...` (Go 1.25) and `npm install` + `npm run build` (Node 20) on every push and PR.
+
 ## Architecture
 - **Backend**: Go (Gin + GORM)
 - **Frontend**: Vue 3 + Vite

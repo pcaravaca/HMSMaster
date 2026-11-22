@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"gorm.io/gorm"
 )
 
-const version = "0.13.0"
+const version = "0.14.0"
 
 func openDB() *gorm.DB {
 	dsn := os.Getenv("DATABASE_URL")
@@ -34,6 +35,9 @@ func openDB() *gorm.DB {
 
 func main() {
 	db := openDB()
+	if err := runMigrations(db); err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
 	if err := db.AutoMigrate(&models.Hotel{}, &models.Room{}, &models.Guest{}, &models.Reservation{}, &models.FolioCharge{}, &models.RateRule{}, &models.User{}, &models.ChannelBooking{}, &models.HousekeepingTask{}); err != nil {
 		log.Fatalf("automigrate: %v", err)
 	}
@@ -58,6 +62,14 @@ func main() {
 	{
 		api.GET("/auth/me", authMeHandler)
 		api.GET("/reports/summary", reportSummaryHandler(db))
+		api.GET("/migrations", guardRoles(func(c *gin.Context) {
+			status, err := migrationStatus(db)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"applied": status})
+		}, "admin", "manager"))
 		api.GET("/housekeeping/tasks", listHousekeepingTasks(db))
 		api.POST("/housekeeping/tasks", guardRoles(createHousekeepingTask(db), "admin","manager","reception","housekeeping"))
 		api.PATCH("/housekeeping/tasks/:id", guardRoles(updateHousekeepingTask(db), "admin","manager","housekeeping"))

@@ -335,7 +335,7 @@
       </section>
     </main>
 
-    <footer>HMSMaster v0.13.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
+    <footer>HMSMaster v0.14.0 · parte de la suite con 🛒 POSMaster · datos demo en CRC</footer>
   </div>
 </template>
 
@@ -417,9 +417,14 @@ async function apiFetch(url, options = {}) {
 
 async function doLogin() {
   try {
-    const res = await apiFetch('/api/auth/login', {
+    // El login no debe pasar por apiFetch(): un 401 aquí son credenciales
+    // inválidas, no una sesión expirada.
+    const res = await fetch('/api/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(loginForm)
+      body: JSON.stringify({
+        username: String(loginForm.username || '').trim(),
+        password: loginForm.password
+      })
     })
     if (!res.ok) throw new Error('Credenciales inválidas')
     const data = await res.json()
